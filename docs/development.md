@@ -41,7 +41,9 @@ The public URL is then `https://$RUNPOD_POD_ID-3002.proxy.runpod.net`.
 | `npm run levels` | Rebuilds `src/levels/campaign.json` from the picture packs and checks every level with the bots. Takes a few minutes. Add `-- --only=critters` to preview one pack without writing the file. |
 | `npm run sim -- 5` | Replays the shipped levels with every bot (5 seeds each) and prints win rates. |
 | `npm run e2e -- http://localhost:3002/` | Browser checks on phone, small phone, landscape, tablet and desktop. Start a dev server first. |
+| `npm run layout -- http://localhost:3003/` | Opens every menu and three levels on seven screen sizes (down to a 320×568 phone and a landscape phone). It fails if a menu spills sideways or needs scrolling, or if HUD pieces overlap, the level title wraps, or the booster bar leaves the screen or covers the queue. Screenshots go to `e2e-out/layout/`. Run it after any UI change. |
 | `npm run shots -- http://localhost:3002/` | Screenshots of the main screens into `e2e-out/`. |
+| `npx tsx scripts/shots-boosters.ts` | Screenshots of the boosters and lives screens into `e2e-out/boost-*.png`. |
 | `npx tsx scripts/art-preview.ts critters` | Contact sheet of a picture pack, saved to `e2e-out/art-critters.png`. |
 | `npx tsx scripts/montage.ts out.png 4 300 a.png b.png …` | Combines screenshots into one image for quick review. |
 | `npm run icons` | Re-renders the app icons with the game's own jelly renderer (`scripts/icons.ts`). |
@@ -116,7 +118,9 @@ Booster rules that keep things fair:
 
 ## Workflow
 
-- Work on a `justin/<name>` branch. Run `npm test`, `npm run build`, and `npm run e2e` against a dev server, then look at `npm run shots` output.
+The home screen shows the version from `package.json`, the commit and the build time (`v0.2.0 · 49c0fb6 · Oct 28, 2:04 PM`), so you can tell which build a phone is running. Bump `version` in `package.json` for a notable release.
+
+- Work on a `justin/<name>` branch. Run `npm test`, `npm run build`, then `npm run e2e` and `npm run layout` against a server, and look at the screenshots.
 - Pushing to `main` deploys to GitHub Pages via `.github/workflows/deploy.yml`.
 - When you change the rules or the generator in a way that changes levels, bump `GEN_VERSION` in `src/sim/levels.ts` and run `npm run levels`.
 

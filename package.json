@@ -1,7 +1,7 @@
 {
   "name": "jelly-buster",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5173",
@@ -13,7 +13,8 @@
     "e2e": "tsx scripts/e2e.ts",
     "shots": "tsx scripts/shots.ts",
     "icons": "tsx scripts/icons.ts",
-    "levels": "tsx scripts/build-levels.ts"
+    "levels": "tsx scripts/build-levels.ts",
+    "layout": "tsx scripts/layout-audit.ts"
   },
   "devDependencies": {
     "@fontsource/baloo-2": "^5.3.0",

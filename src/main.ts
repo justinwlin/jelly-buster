@@ -19,6 +19,8 @@ import {
 
 registerSW({ immediate: true });
 
+/** Shown on the home screen: package version, commit and build time. */
+const VERSION_LABEL = `v${__APP_VERSION__} · ${__BUILD_SHA__} · ${new Date(__BUILD_TIME__).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`;
 const LEVELS = (campaignData as unknown as { levels: Level[] }).levels;
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d')!;
@@ -252,6 +254,7 @@ function toTitle() {
         <div class="title-stats"><span>⭐ ${starsTotal}</span>${livesPill()}<span><i class="coin sm"></i> ${save.coins}</span></div>
         ${settingsToggles()}
       </div>
+      <div class="version" id="version">${VERSION_LABEL}</div>
     </div>`,
     { play: () => play(next), levels: levelsScreen, ...toggleHandlers(toTitle) },
     'title',
@@ -1051,6 +1054,7 @@ requestAnimationFrame(frame);
   view: () => view,
   save: () => save,
   start: (i: number) => startLevel(i),
+  title: () => toTitle(),
   tap: (id: number) => tryLaunch(id),
   booster: (id: BoosterId) => tapBooster(id),
   aim: () => aim,
