@@ -1,4 +1,7 @@
-// Progress in localStorage: unlocked level, coins, stars per level and settings.
+// Progress in localStorage: unlocked level, coins, stars per level, lives, boosters and
+// settings. New fields get defaults from fresh(), so old saves load without a version bump.
+
+import type { Kit } from '../sim/boosters';
 
 export interface Settings {
   sound: boolean;
@@ -16,12 +19,18 @@ export interface Save {
   settings: Settings;
   /** Tips already shown (tutorial, new mechanics). */
   seen: string[];
+  /** Lives in hand (see economy.ts). */
+  lives: number;
+  /** When the next life started recharging (ms epoch), null while lives are full. */
+  lifeAt: number | null;
+  /** Boosters owned. */
+  boosters: Kit;
 }
 
 const KEY = 'jelly-buster.save.v1';
 
 export function fresh(): Save {
-  return { v: 1, unlocked: 0, coins: 200, stars: {}, settings: { sound: true, music: true, haptics: true }, seen: [] };
+  return { v: 1, unlocked: 0, coins: 200, stars: {}, settings: { sound: true, music: true, haptics: true }, seen: [], lives: 3, lifeAt: null, boosters: {} };
 }
 
 export function load(): Save {

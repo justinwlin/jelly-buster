@@ -211,6 +211,33 @@ export const sfx = {
       tone({ type: 'triangle', freq: f, dur: 1.2, vol: 0.05, at: 0.48 });
     });
   },
+  /** Propeller spinning up and lifting off. */
+  lift() {
+    noise(0.5, 0.09, 'bandpass', 500, 2, 0, 3200);
+    tone({ type: 'sawtooth', freq: 70, to: 210, dur: 0.5, vol: 0.05, lp: 900, vibrato: 18 });
+    tone({ type: 'sine', freq: 300, to: 900, dur: 0.35, vol: 0.08, at: 0.12 });
+  },
+  /** Crane: a motor whirr and a clunk as the claw closes. */
+  crane() {
+    tone({ type: 'square', freq: 90, to: 140, dur: 0.3, vol: 0.035, lp: 700, vibrato: 25 });
+    noise(0.06, 0.2, 'bandpass', 1200, 4, 0.28);
+    tone({ type: 'sine', freq: 260, to: 520, dur: 0.18, vol: 0.1, at: 0.32 });
+  },
+  /** Jellies squishing together. */
+  merge() {
+    tone({ type: 'sine', freq: 180, to: 90, dur: 0.18, vol: 0.18 });
+    noise(0.12, 0.12, 'lowpass', 600, 1);
+    [0, 2, 4, 7].forEach((st, i) => tone({ type: 'triangle', freq: note(st + 3, 392), dur: 0.22, vol: 0.08, at: 0.12 + i * 0.05 }));
+  },
+  buy() {
+    [0, 4, 7].forEach((st, i) => tone({ type: 'square', freq: note(st, 1046.5), dur: 0.09, vol: 0.03, lp: 5000, at: i * 0.06 }));
+    tone({ type: 'sine', freq: 2093, dur: 0.3, vol: 0.05, at: 0.18 });
+  },
+  /** Losing a life: a heart cracking. */
+  heart() {
+    tone({ type: 'triangle', freq: 660, to: 330, dur: 0.35, vol: 0.09 });
+    noise(0.08, 0.14, 'highpass', 2500, 1, 0.05);
+  },
   lose() {
     [392, 349, 311, 262].forEach((f, i) => tone({ type: 'sawtooth', freq: f, to: f * 0.94, dur: i === 3 ? 0.7 : 0.26, vol: 0.06, at: i * 0.24, lp: 1200, vibrato: i === 3 ? 6 : 0 }));
   },

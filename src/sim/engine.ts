@@ -16,6 +16,9 @@ export const TUNING = {
   slots: 5,
 };
 
+/** Propeller booster: ticks to fly up to the middle, then ticks between shots. */
+export const FLY = { rise: 30, every: 6 };
+
 export interface JellySpec {
   id: number;
   color: number;
@@ -62,11 +65,23 @@ export interface Runner {
   lapHits: number;
 }
 
+/** A jelly lifted by a propeller: hovers over the middle and fires down until it's spent. */
+export interface Flyer {
+  j: Jelly;
+  /** Ticks since lift-off. */
+  t: number;
+}
+
 export type SimEvent =
   | { k: 'launch'; id: number; slot: number; col: number }
   | { k: 'enter'; id: number }
+  /** `s` is the belt station it fired from, -1 for a flying jelly. */
   | { k: 'shot'; id: number; cell: number; color: number; s: number }
   | { k: 'done'; id: number; s: number }
+  /** Boosters: a propeller lifts a jelly, the crane plucks one from the queue, slot jellies merge. */
+  | { k: 'lift'; id: number; slot: number; col: number }
+  | { k: 'crane'; id: number; col: number; depth: number }
+  | { k: 'merge'; id: number; from: number[] }
   | { k: 'park'; id: number; slot: number }
   /** Queue is empty, so a jelly with hits left goes round again instead of parking. */
   | { k: 'loop'; id: number }
@@ -84,7 +99,11 @@ export interface State {
   belt: Runner[];
   /** Launched but waiting for room behind the launcher. */
   pending: Jelly[];
+  /** Jellies flying over the picture (propeller booster). */
+  flyers: Flyer[];
   launches: number;
+  /** Boosters used this game. */
+  boosts: number;
   status: 'play' | 'won' | 'lost';
   reason: 'full' | 'stuck' | null;
   /** The jelly that came back to full slots (kept so a revive can park it). */
@@ -113,7 +132,9 @@ export function newState(lvl: Level): State {
     slots: Array.from({ length: lvl.slots }, () => null),
     belt: [],
     pending: [],
+    flyers: [],
     launches: 0,
+    boosts: 0,
     status: 'play',
     reason: null,
     held: null,
@@ -135,6 +156,7 @@ export function cloneState(st: State): State {
     slots: st.slots.map((j) => (j ? cj(j) : null)),
     belt: st.belt.map((r) => ({ j: cj(r.j), p: r.p, lapHits: r.lapHits })),
     pending: st.pending.map(cj),
+    flyers: st.flyers.map((f) => ({ j: cj(f.j), t: f.t })),
     held: st.held ? cj(st.held) : null,
     events: [],
     log: false,
@@ -218,13 +240,137 @@ export function launch(st: State, id: number): boolean {
     st.launches++;
     emit(st, { k: 'launch', id: j.id, slot: at.slot, col: at.col });
   }
+  thaw(st, group.length);
+  return true;
+}
+
+/** Every jelly leaving the queue or a slot counts toward melting the ice. */
+function thaw(st: State, sent: number) {
   for (const col of st.cols)
     for (const j of col)
       if (j.ice > 0) {
-        j.ice = Math.max(0, j.ice - group.length);
+        j.ice = Math.max(0, j.ice - sent);
         if (j.ice === 0) emit(st, { k: 'thaw', id: j.id });
       }
+}
+
+// ---------------------------------------------------------------- boosters
+// Each booster is a target list (what it may be used on right now; empty means it can't be
+// used) and an action. The registry in boosters.ts wires them to names and prices.
+
+/** Propeller: any slot jelly, or a queue front that could leave on its own (no ice, no link). */
+export function liftTargets(st: State): number[] {
+  if (st.status !== 'play' || st.flyers.length) return [];
+  const out: number[] = [];
+  for (const j of st.slots) if (j) out.push(j.id);
+  for (const col of st.cols) if (col[0] && !col[0].ice && col[0].link < 0) out.push(col[0].id);
+  return out;
+}
+
+/** Fly a jelly up over the picture, where it fires at every cube of its color until spent. */
+export function lift(st: State, id: number): boolean {
+  if (!liftTargets(st).includes(id)) return false;
+  const at = locate(st, id)!;
+  let j: Jelly;
+  if (at.slot >= 0) {
+    j = st.slots[at.slot]!;
+    st.slots[at.slot] = null;
+  } else j = st.cols[at.col].shift()!;
+  j.hidden = false;
+  st.flyers.push({ j, t: 0 });
+  st.launches++;
+  emit(st, { k: 'lift', id, slot: at.slot, col: at.col });
+  thaw(st, 1);
   return true;
+}
+
+/**
+ * Crane: any queue jelly a tap couldn't send right now (buried, frozen or tied up), as long
+ * as the belt has room for it.
+ */
+export function craneTargets(st: State): number[] {
+  if (st.status !== 'play' || st.belt.length + st.pending.length >= st.lvl.belt) return [];
+  return st.cols.flat().filter((j) => !launchGroup(st, j.id).group).map((j) => j.id);
+}
+
+/** Pluck a jelly out of the queue and set it on the belt: ice cracks, its rope is cut. */
+export function crane(st: State, id: number): boolean {
+  if (!craneTargets(st).includes(id)) return false;
+  const at = locate(st, id)!;
+  const [j] = st.cols[at.col].splice(at.depth, 1);
+  if (j.link >= 0) {
+    const rest = members(st, j.link);
+    if (rest.length === 1) rest[0].j.link = -1;
+    j.link = -1;
+  }
+  j.ice = 0;
+  j.hidden = false;
+  st.pending.push(j);
+  st.launches++;
+  emit(st, { k: 'crane', id, col: at.col, depth: at.depth });
+  emit(st, { k: 'launch', id, slot: -1, col: at.col });
+  thaw(st, 1);
+  return true;
+}
+
+/** Merge: slot jellies that share a color with another slot jelly. */
+export function mergeTargets(st: State): number[] {
+  if (st.status !== 'play') return [];
+  const count = new Map<number, number>();
+  for (const j of st.slots) if (j) count.set(j.color, (count.get(j.color) ?? 0) + 1);
+  return st.slots.filter((j) => j && count.get(j.color)! > 1).map((j) => j!.id);
+}
+
+/** Fold every slot jelly of this one's color into it, freeing their slots. */
+export function merge(st: State, id: number): boolean {
+  if (!mergeTargets(st).includes(id)) return false;
+  const into = st.slots.find((j) => j?.id === id)!;
+  const from: number[] = [];
+  st.slots.forEach((j, i) => {
+    if (!j || j === into || j.color !== into.color) return;
+    into.n += j.n;
+    from.push(j.id);
+    st.slots[i] = null;
+  });
+  emit(st, { k: 'merge', id, from });
+  return true;
+}
+
+/** The cube a flying jelly fires at next: the nearest of its color to the middle. */
+function flyTarget(st: State, color: number): number {
+  const { w, h } = st.lvl;
+  let best = -1;
+  let bestD = Infinity;
+  for (let i = 0; i < st.cells.length; i++) {
+    if (st.cells[i] !== color) continue;
+    const dx = 2 * (i % w) + 1 - w;
+    const dy = 2 * Math.floor(i / w) + 1 - h;
+    const d = dx * dx + dy * dy;
+    if (d < bestD) [best, bestD] = [i, d];
+  }
+  return best;
+}
+
+function stepFlyers(st: State) {
+  for (const f of st.flyers.slice()) {
+    f.t++;
+    if (f.t < FLY.rise || (f.t - FLY.rise) % FLY.every) continue;
+    const i = flyTarget(st, f.j.color);
+    if (i >= 0) {
+      st.cells[i] = -1;
+      st.left--;
+      st.shots++;
+      st.lastShot = st.tick;
+      f.j.n--;
+      emit(st, { k: 'shot', id: f.j.id, cell: i, color: f.j.color, s: -1 });
+    }
+    // Cubes of a color always add up to the hits its jellies have left, so a flyer runs out
+    // of cubes and hits together; the check on i is only a guard.
+    if (f.j.n <= 0 || i < 0) {
+      st.flyers.splice(st.flyers.indexOf(f), 1);
+      emit(st, { k: 'done', id: f.j.id, s: -1 });
+    }
+  }
 }
 
 /** Every jelly id a tap could send out right now. */
@@ -327,6 +473,8 @@ export function step(st: State) {
     }
   }
 
+  stepFlyers(st);
+
   if (st.left <= 0) {
     st.status = 'won';
     emit(st, { k: 'win' });
@@ -334,7 +482,7 @@ export function step(st: State) {
   }
   // Looping jellies that go two full laps without a single hit will never hit again.
   const dry = queueEmpty && st.tick - st.lastShot > 2 * (L + spacing * st.lvl.belt) * sub;
-  if (dry || (!st.belt.length && !st.pending.length && (!anyMove(st) || deadlocked(st)))) {
+  if (dry || (!st.belt.length && !st.pending.length && !st.flyers.length && (!anyMove(st) || deadlocked(st)))) {
     st.status = 'lost';
     st.reason = 'stuck';
     emit(st, { k: 'lose', reason: 'stuck' });

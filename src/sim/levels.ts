@@ -4,13 +4,14 @@
 
 import { COLORS } from './art';
 import { playBot } from './bots';
+import { BOOSTER_IDS, type Kit } from './boosters';
 import { TUNING, type JellySpec, type Level } from './engine';
 import { PACKS, type Art } from './pictures';
 import { hash32, Rng } from './rng';
 import { exposed } from './track';
 
 /** Bump when built levels change shape, so saved progress can tell. */
-export const GEN_VERSION = 1;
+export const GEN_VERSION = 2;
 
 export interface Recipe {
   columns: number;
@@ -305,6 +306,8 @@ export interface Check {
   /** Queue-spamming bot wins out of `spamTries`: blind spamming shouldn't reliably win. */
   spam: number;
   spamTries: number;
+  /** Human-like bot wins out of `tries` carrying one of each booster. */
+  boosted: number;
   seconds: number;
 }
 
@@ -319,19 +322,25 @@ export function checkLevel(lvl: Level, tries = 3): Check {
   }
   let human = 0;
   let greedy = 0;
+  let boosted = 0;
   let seconds = 0;
   for (let t = 0; t < tries; t++) {
     const h = playBot(lvl, 'human', 11 + t);
     human += +h.won;
     seconds += h.seconds;
     greedy += +playBot(lvl, 'greedy', 21 + t).won;
+    boosted += +(h.won || playBot(lvl, 'human', 11 + t, 900, KIT).won);
   }
   const spamTries = SPAM_TRIES;
   const spam = spamWins(lvl, spamTries, 31);
-  return { need, human, tries, greedy, spam, spamTries, seconds: seconds / tries };
+  return { need, human, tries, greedy, spam, spamTries, boosted, seconds: seconds / tries };
 }
 
 const SPAM_TRIES = 8;
+/** What a player who bought a little help carries: one of each booster. */
+const KIT: Kit = Object.fromEntries(BOOSTER_IDS.map((id) => [id, 1]));
+/** From here on a level may lean on boosters: a booster-less human only has to win sometimes. */
+export const TOUGH_FROM = 20;
 
 function spamWins(lvl: Level, n = SPAM_TRIES, seed = 31) {
   let w = 0;
@@ -339,19 +348,23 @@ function spamWins(lvl: Level, n = SPAM_TRIES, seed = 31) {
   return w;
 }
 
-/** A careful player who only sends jellies whose color is showing wins every time. */
+/** Wins (out of 3) for a careful player who only sends jellies whose color is showing. */
 function carefulWins(lvl: Level) {
-  return [1, 2, 3].every((s) => playBot(lvl, 'greedy', s).won);
+  return [1, 2, 3].reduce((n, s) => n + +playBot(lvl, 'greedy', s).won, 0);
 }
 
 /**
  * Re-order the queue against blind spamming: keep swapping jellies (one near the front,
  * one anywhere) when the spam bot does no better and a careful player still always wins.
- * Stops once spam wins no more than `target` of its tries.
+ * Stops once spam wins no more than `target` of its tries. A `tough` level goes one step
+ * further: the careful player may lose one game in three (boosters cover the gap).
  */
-export function harden(lvl: Level, target: number, rng: Rng, iters = 3000): Level {
+export function harden(lvl: Level, target: number, rng: Rng, iters = 3000, tough = false): Level {
+  const floor = tough ? 2 : 3;
+  const scoreOf = (spam: number, careful: number) => spam + (tough ? (careful - floor) * 3 : 0);
   let best = lvl;
-  let score = spamWins(best);
+  let spam = spamWins(best);
+  let score = scoreOf(spam, tough ? carefulWins(best) : floor);
   for (let it = 0; it < iters && score > target; it++) {
     const cols = best.columns.map((c) => c.map((j) => ({ ...j })));
     const a = rng.int(0, cols.length);
@@ -365,9 +378,13 @@ export function harden(lvl: Level, target: number, rng: Rng, iters = 3000): Leve
     cols[b][db] = A;
     if (!untangles(cols)) continue;
     const cand = { ...best, columns: cols };
-    const sc = spamWins(cand);
-    if (sc <= score && carefulWins(cand)) {
+    const sp = spamWins(cand);
+    if (sp > spam) continue;
+    const careful = carefulWins(cand);
+    const sc = scoreOf(sp, careful);
+    if (sc <= score && careful >= floor) {
       best = cand;
+      spam = sp;
       score = sc;
     }
   }
@@ -381,7 +398,7 @@ export function needBand(index: number, slots = TUNING.slots): [number, number] 
 
 /** Most spam-bot wins (out of 8) a level may allow and still count as interesting. */
 export function spamCap(index: number): number {
-  return index < 6 ? 8 : index < 15 ? 6 : index < 30 ? 5 : index < 50 ? 4 : 3;
+  return index < 6 ? 8 : index < 15 ? 5 : index < 30 ? 4 : index < 50 ? 3 : 2;
 }
 
 /** Interesting: blind spamming doesn't reliably beat it. */
@@ -389,10 +406,16 @@ export function interesting(index: number, c: Check): boolean {
   return c.spam <= spamCap(index);
 }
 
-/** A check passes when the level is winnable with margin and humans usually win. */
+/**
+ * A check passes when the level is winnable with margin (the smart bot never needs the last
+ * slot) and humans usually win. Later levels may be tougher, as long as a human with one of
+ * each booster always wins and one without still wins sometimes.
+ */
 export function passes(index: number, c: Check, slots = TUNING.slots): boolean {
   const [, hi] = needBand(index, slots);
-  return c.need <= hi && c.human * 3 >= c.tries * 2;
+  if (c.need > hi) return false;
+  if (index >= TOUGH_FROM) return c.human >= 1 && c.boosted === c.tries;
+  return c.human * 3 >= c.tries * 2;
 }
 
 export interface Built {
@@ -421,7 +444,7 @@ export function searchLevel(slot: Slot, seed = 'jelly'): Built {
       attempts++;
       const r: Recipe = { ...base, ...v, ropes: k === 1 && attempts > 4 ? 0 : base.ropes };
       let level = buildLevel(slot, r, seed, attempts);
-      if (slot.index >= 6) level = harden(level, cap, rng);
+      if (slot.index >= 6) level = harden(level, cap, rng, 3000, slot.index >= TOUGH_FROM);
       const check = checkLevel(level);
       if (!passes(slot.index, check)) continue;
       const built = { level, check, attempts };

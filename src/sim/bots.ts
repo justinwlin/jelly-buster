@@ -7,6 +7,7 @@
 //  human   smart, but slower to react and sometimes picks a worse option
 
 import { cloneState, launch, legalLaunches, locate, newState, slotsUsed, stars, step, TUNING, type Level, type State } from './engine';
+import { BOOSTERS, useBooster, type BoosterId, type Kit } from './boosters';
 import { Rng } from './rng';
 import { exposed, trackLength } from './track';
 
@@ -22,6 +23,8 @@ export interface BotResult {
   stars: number;
   /** Fraction of cubes cleared. */
   cleared: number;
+  /** Boosters used. */
+  boosts: number;
 }
 
 const REACT: Record<Policy, number> = { spam: 10, random: 30, greedy: 12, smart: 6, human: 36 };
@@ -116,8 +119,39 @@ function decide(st: State, policy: Policy, rng: Rng): number | null {
   return (dig[0] ?? opts[0])?.id ?? null;
 }
 
-export function playBot(lvl: Level, policy: Policy, seed = 1, maxSeconds = 900): BotResult {
+/**
+ * Booster habits for a bot carrying a kit: merge and propeller when slots run low, the crane
+ * when nothing in reach helps. Returns true if it used one.
+ */
+function useKit(st: State, kit: Kit): boolean {
+  const has = (id: BoosterId) => (kit[id] ?? 0) > 0 && BOOSTERS[id].targets(st).length > 0;
+  const spend = (id: BoosterId, target: number) => {
+    if (!useBooster(st, id, target)) return false;
+    kit[id]!--;
+    return true;
+  };
+  const used = slotsUsed(st);
+  const tight = used >= st.slots.length - 2;
+  if (tight && has('merge')) return spend('merge', BOOSTERS.merge.targets(st)[0]);
+  if (used >= st.slots.length - 1 && has('propeller')) {
+    const slotIds = new Set(st.slots.filter((j) => j).map((j) => j!.id));
+    const best = BOOSTERS.propeller.targets(st)
+      .filter((id) => slotIds.has(id))
+      .sort((a, b) => st.slots.find((j) => j?.id === b)!.n - st.slots.find((j) => j?.id === a)!.n)[0];
+    if (best !== undefined) return spend('propeller', best);
+  }
+  if (tight && has('crane') && !st.belt.length && !st.pending.length) {
+    const ex = exposed(st.cells, st.lvl.w, st.lvl.h);
+    const want = new Set([...ex].map((i) => st.cells[i]));
+    const pick = BOOSTERS.crane.targets(st).find((id) => want.has(colorOf(st, id)));
+    if (pick !== undefined) return spend('crane', pick);
+  }
+  return false;
+}
+
+export function playBot(lvl: Level, policy: Policy, seed = 1, maxSeconds = 900, kit: Kit = {}): BotResult {
   const st = newState(lvl);
+  kit = { ...kit };
   st.log = false;
   const rng = new Rng(seed);
   const react = REACT[policy];
@@ -125,6 +159,7 @@ export function playBot(lvl: Level, policy: Policy, seed = 1, maxSeconds = 900):
   const maxTicks = maxSeconds * TUNING.hz;
   let wait = 0;
   while (st.status === 'play' && st.tick < maxTicks) {
+    if (wait <= 0 && useKit(st, kit)) wait = react;
     if (wait-- <= 0 && st.belt.length + st.pending.length < lvl.belt) {
       const id = decide(st, policy, rng);
       if (id !== null) launch(st, id);
@@ -140,5 +175,6 @@ export function playBot(lvl: Level, policy: Policy, seed = 1, maxSeconds = 900):
     launches: st.launches,
     stars: st.status === 'won' ? stars(st) : 0,
     cleared: 1 - st.left / total,
+    boosts: st.boosts,
   };
 }

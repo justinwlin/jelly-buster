@@ -39,7 +39,7 @@ for (let k = 0; k < jobs; k++) {
 built.sort((a, b) => a.level.index - b.level.index);
 
 const pad = (s: string | number, n: number) => String(s).padEnd(n);
-console.log(pad('#', 4) + pad('level', 33) + pad('cubes', 6) + pad('col', 4) + pad('jel', 4) + pad('need', 6) + pad('human', 6) + pad('greedy', 7) + pad('spam', 8) + pad('time', 6) + 'tries');
+console.log(pad('#', 4) + pad('level', 33) + pad('cubes', 6) + pad('col', 4) + pad('jel', 4) + pad('need', 6) + pad('human', 6) + pad('greedy', 7) + pad('spam', 8) + pad('kit', 5) + pad('time', 6) + 'tries');
 let fun = 0;
 for (const b of built) {
   const { level: l, check: c } = b;
@@ -47,7 +47,7 @@ for (const b of built) {
   fun += +ok;
   console.log(
     pad(l.index + 1, 4) + pad(l.id, 33) + pad(l.cells.filter((x) => x >= 0).length, 6) + pad(l.palette.length, 4) + pad(l.columns.flat().length, 4) +
-      pad(`${c.need}/${needBand(l.index)[1]}`, 6) + pad(`${c.human}/${c.tries}`, 6) + pad(`${c.greedy}/${c.tries}`, 7) + pad(`${c.spam}/${c.spamTries}≤${spamCap(l.index)}`, 8) +
+      pad(`${c.need}/${needBand(l.index)[1]}`, 6) + pad(`${c.human}/${c.tries}`, 6) + pad(`${c.greedy}/${c.tries}`, 7) + pad(`${c.spam}/${c.spamTries}≤${spamCap(l.index)}`, 8) + pad(`${c.boosted}/${c.tries}`, 5) +
       pad(`${c.seconds.toFixed(0)}s`, 6) + b.attempts + (ok ? '' : ' (easier than target)'),
   );
 }

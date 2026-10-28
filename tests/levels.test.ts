@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import campaign from '../src/levels/campaign.json';
 import { playBot } from '../src/sim/bots';
 import type { Level } from '../src/sim/engine';
-import { buildLevel, campaign as slots, GEN_VERSION, needBand, recipe, untangles, type Check } from '../src/sim/levels';
+import { buildLevel, campaign as slots, GEN_VERSION, needBand, recipe, TOUGH_FROM, untangles, type Check } from '../src/sim/levels';
 import { PACKS } from '../src/sim/pictures';
 import { COLORS } from '../src/sim/art';
 
@@ -60,11 +60,14 @@ describe('campaign.json', () => {
     expect(new Set(LEVELS.map((l) => l.columns.length)).size).toBeGreaterThanOrEqual(3);
   });
 
-  it('every level is beatable with spare slots and humans usually win', () => {
+  it('every level is beatable with spare slots, and humans usually win (always, with boosters, on tough levels)', () => {
     for (const l of LEVELS) {
       const [, hi] = needBand(l.index, l.slots);
       expect(l.check.need, l.id).toBeLessThanOrEqual(hi);
-      expect(l.check.human * 3, l.id).toBeGreaterThanOrEqual(l.check.tries * 2);
+      if (l.index >= TOUGH_FROM) {
+        expect(l.check.human, l.id).toBeGreaterThanOrEqual(1);
+        expect(l.check.boosted, l.id).toBe(l.check.tries);
+      } else expect(l.check.human * 3, l.id).toBeGreaterThanOrEqual(l.check.tries * 2);
     }
   });
 

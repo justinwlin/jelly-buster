@@ -3,6 +3,7 @@
 
 import { TUNING, type Jelly, type SimEvent, type State } from '../sim/engine';
 import { station, trackLength } from '../sim/track';
+import { drawPropeller } from './boosterArt';
 import { drawJelly, JELLY_FONT, shade } from './jelly';
 import { computeLayout, stationPos, type Layout, type Pt } from './layout';
 
@@ -21,7 +22,7 @@ export const THEME = {
   fade1: 'rgba(195,163,245,0.95)',
 };
 
-type Place = 'queue' | 'slot' | 'pending' | 'belt';
+type Place = 'queue' | 'slot' | 'pending' | 'belt' | 'fly';
 
 interface Vis {
   x: number;
@@ -104,6 +105,12 @@ export interface View {
   shake: { id: number; t: number } | null;
   /** Linked group to highlight after a blocked tap. */
   ropeHint: { link: number; t: number } | null;
+  /** Jellies an armed booster can be used on (they glow), null when nothing is armed. */
+  aim: Set<number> | null;
+  /** Jellies squishing into a merged one: fly from (x, y) to the jelly `into`. */
+  merging: { x: number; y: number; color: string; into: number; t: number }[];
+  /** The crane's cable follows this jelly while it's carried to the belt. */
+  craneFx: { id: number; t: number } | null;
   point: number | null;
   /** Screen shake amplitude in px, decays. */
   quake: number;
@@ -127,7 +134,7 @@ export interface View {
 export function newView(st: State, W: number, H: number, dpr: number, safeTop = 0, safeBottom = 0): View {
   const v: View = {
     st,
-    l: computeLayout(W, H, st.lvl.w, st.lvl.h, st.slots.length, st.cols.length, safeTop, safeBottom),
+    l: computeLayout(W, H, st.lvl.w, st.lvl.h, st.slots.length, st.cols.length, safeTop, safeBottom, 0),
     dpr,
     time: 0,
     vis: new Map(),
@@ -141,6 +148,9 @@ export function newView(st: State, W: number, H: number, dpr: number, safeTop = 
     beltFlash: 0,
     shake: null,
     ropeHint: null,
+    aim: null,
+    merging: [],
+    craneFx: null,
     point: null,
     quake: 0,
     launcherPulse: 0,
@@ -159,9 +169,10 @@ export function newView(st: State, W: number, H: number, dpr: number, safeTop = 
   return v;
 }
 
-export function relayout(v: View, W: number, H: number, dpr: number) {
+/** `bar` is the height kept free at the bottom for the booster bar. */
+export function relayout(v: View, W: number, H: number, dpr: number, bar = v.l.bar.h) {
   v.dpr = dpr;
-  v.l = computeLayout(W, H, v.st.lvl.w, v.st.lvl.h, v.st.slots.length, v.st.cols.length, v.safeTop, v.safeBottom);
+  v.l = computeLayout(W, H, v.st.lvl.w, v.st.lvl.h, v.st.slots.length, v.st.cols.length, v.safeTop, v.safeBottom, bar);
   v.cubeCache.clear();
   v.bg = null;
   v.pic = null;
@@ -190,8 +201,19 @@ function targets(v: View): Map<number, Pt & { place: Place }> {
   st.slots.forEach((j, i) => j && i < l.slots.length && out.set(j.id, { ...l.slots[i], place: 'slot' }));
   st.pending.forEach((j, i) => out.set(j.id, { x: l.launcher.x - i * 5, y: l.launcher.y - l.beltSize * 0.1 + i * 5, place: 'pending' }));
   for (const r of st.belt) out.set(r.j.id, { ...stationPos(l, r.p / TUNING.sub), place: 'belt' });
+  st.flyers.forEach((f, i) => out.set(f.j.id, { ...hover(v, i), place: 'fly' }));
   if (st.held) out.set(st.held.id, { x: l.launcher.x, y: l.launcher.y - l.beltSize * 0.1, place: 'pending' });
   return out;
+}
+
+/** Where a propeller jelly hovers: over the middle of the picture, drifting in a lazy loop. */
+function hover(v: View, i: number): Pt {
+  const l = v.l;
+  const t = v.time + i * 2;
+  return {
+    x: l.px + (l.gw * l.cs) / 2 + Math.sin(t * 1.3) * l.cs * 1.6,
+    y: l.py + (l.gh * l.cs) / 2 - l.cs * 0.8 + Math.sin(t * 2.6) * l.cs * 0.6,
+  };
 }
 
 export function cellPt(l: Layout, cell: number, w: number): Pt {
@@ -222,15 +244,15 @@ export function onEvents(v: View, evs: SimEvent[]) {
   for (const e of evs) {
     const vis = v.vis.get((e as { id?: number }).id ?? -1);
     if (e.k === 'shot') {
-      const from = stationPos(l, e.s);
+      const from = e.s < 0 && vis ? { x: vis.x, y: vis.y + l.beltSize * 0.3 } : stationPos(l, Math.max(0, e.s));
       const to = cellPt(l, e.cell, st.lvl.w);
       v.ghosts.set(e.cell, e.color);
       const d = Math.hypot(to.x - from.x, to.y - from.y);
       v.shots.push({ from, to, t: 0, dur: Math.min(0.16, 0.05 + d / 2600), color: st.lvl.palette[e.color], cell: e.cell });
       if (vis) {
-        const n = inward(v, e.s);
-        vis.rx -= n.x * l.beltSize * 0.12;
-        vis.ry -= n.y * l.beltSize * 0.12;
+        const n = e.s < 0 ? { x: (from.x - to.x) / (d || 1), y: (from.y - to.y) / (d || 1) } : inward(v, e.s);
+        vis.rx += (e.s < 0 ? 1 : -1) * n.x * l.beltSize * 0.12;
+        vis.ry += (e.s < 0 ? 1 : -1) * n.y * l.beltSize * 0.12;
         vis.sqv += 5;
         vis.pulse = 1;
         vis.shotAt = v.time;
@@ -259,6 +281,19 @@ export function onEvents(v: View, evs: SimEvent[]) {
     } else if (e.k === 'enter') {
       v.launcherPulse = 1;
       if (vis) vis.sqv -= 6;
+    } else if (e.k === 'lift') {
+      if (vis) {
+        vis.sqv -= 10;
+        vis.wave = 1;
+        burst(v, vis.x, vis.y, '#ffffff', 10, l.beltSize * 0.08, 200, 'spark');
+      }
+    } else if (e.k === 'crane') {
+      v.craneFx = { id: e.id, t: 0 };
+    } else if (e.k === 'merge') {
+      for (const id of e.from) {
+        const fv = v.vis.get(id);
+        if (fv) v.merging.push({ x: fv.x, y: fv.y, color: st.lvl.palette[v.lastColor.get(id) ?? 0], into: e.id, t: 0 });
+      }
     } else if (e.k === 'thaw') {
       if (vis) {
         burst(v, vis.x, vis.y - l.qSize * 0.1, '#dff6ff', 14, l.qSize * 0.1, 160, 'cube');
@@ -323,7 +358,7 @@ export function update(v: View, dt: number) {
     }
     if (vis.place !== t.place) {
       // Changing place: hop along an arc (except slot/queue → pending → belt, which chains).
-      const dur = t.place === 'belt' && vis.place === 'pending' ? 0.12 : t.place === 'slot' ? 0.32 : 0.28;
+      const dur = t.place === 'belt' && vis.place === 'pending' ? 0.12 : t.place === 'fly' ? 0.5 : v.craneFx?.id === id ? 0.65 : t.place === 'slot' ? 0.32 : 0.28;
       vis.hop = { fx: vis.x, fy: vis.y, t: 0, dur };
       vis.place = t.place;
     }
@@ -339,7 +374,7 @@ export function update(v: View, dt: number) {
         vis.sqv += 7;
         if (t.place === 'slot') dust(v, t.x, t.y + l.slotSize * 0.38);
       }
-    } else if (t.place === 'belt') {
+    } else if (t.place === 'belt' || t.place === 'fly') {
       vis.x = t.x;
       vis.y = t.y;
     } else {
@@ -389,6 +424,19 @@ export function update(v: View, dt: number) {
     }
   }
   v.popping = v.popping.filter((p) => p.t < 0.2);
+  for (const m of v.merging) {
+    const before = m.t;
+    m.t += dt;
+    const into = v.vis.get(m.into);
+    if (before < 0.3 && m.t >= 0.3 && into) {
+      into.sqv += 12;
+      into.pulse = 1;
+      burst(v, into.x, into.y, m.color, 12, l.slotSize * 0.12, 200);
+      v.rings.push({ x: into.x, y: into.y, t: 0, life: 0.35, r: l.slotSize, color: m.color });
+    }
+  }
+  v.merging = v.merging.filter((m) => m.t < 0.3);
+  if (v.craneFx && (v.craneFx.t += dt) > 0.8) v.craneFx = null;
   for (const p of v.parts) {
     p.t += dt;
     p.x += p.vx * dt;
@@ -716,6 +764,10 @@ export function draw(ctx: CanvasRenderingContext2D, v: View) {
   drawLauncher(ctx, v);
   drawPanel(ctx, v);
   drawBeltJellies(ctx, v);
+  drawMerging(ctx, v);
+  drawCrane(ctx, v);
+  drawFlyers(ctx, v);
+  drawAimMarks(ctx, v);
 
   for (const p of v.popping) {
     const u = p.t / 0.2;
@@ -748,9 +800,9 @@ export function draw(ctx: CanvasRenderingContext2D, v: View) {
 function drawTreads(ctx: CanvasRenderingContext2D, v: View) {
   const { l, st } = v;
   const L = trackLength(st.lvl.w, st.lvl.h);
-  const moving = st.status === 'play' && st.belt.length + st.pending.length > 0;
+  const moving = st.status === 'play' && st.belt.length + st.pending.length > 0 && !v.aim;
   const phase = ((v.time * TUNING.hz) / TUNING.sub) % 1;
-  const ph = moving || st.belt.length ? phase : (v.time * 1.5) % 1;
+  const ph = moving ? phase : st.belt.length ? 0 : (v.time * 1.5) % 1;
   ctx.strokeStyle = 'rgba(255,255,255,0.09)';
   ctx.lineWidth = Math.max(2, l.cs * 0.28);
   ctx.lineCap = 'round';
@@ -949,6 +1001,112 @@ function drawBeltJellies(ctx: CanvasRenderingContext2D, v: View) {
   for (const j of st.slots) if (j && v.vis.get(j.id)?.hop) drawSlotJelly(ctx, v, j);
 }
 
+/** Propeller jellies, over everything, with a soft shadow on the picture below. */
+function drawFlyers(ctx: CanvasRenderingContext2D, v: View) {
+  const { l, st } = v;
+  const size = l.beltSize * 1.3;
+  for (const f of st.flyers) {
+    const vis = v.vis.get(f.j.id);
+    if (!vis) continue;
+    const up = vis.hop ? Math.min(1, vis.hop.t / vis.hop.dur) : 1;
+    ctx.fillStyle = `rgba(40,20,90,${0.22 * up})`;
+    ctx.beginPath();
+    ctx.ellipse(vis.x, vis.y + size * 0.95, size * 0.42, size * 0.13, 0, 0, Math.PI * 2);
+    ctx.fill();
+    const bob = Math.sin(v.time * 7) * size * 0.03;
+    const x = vis.x + vis.rx;
+    const y = vis.y + vis.ry + bob;
+    drawJelly(ctx, x, y, size, st.lvl.palette[f.j.color], f.j.n, {
+      face: true,
+      squash: vis.sq,
+      pulse: vis.pulse,
+      mood: v.time - vis.shotAt < 0.35 ? 'shout' : 'happy',
+      blink: blink(v, vis),
+      look: { x: 0, y: 1 },
+      wave: Math.sin(v.time * 12) * 0.5,
+    });
+    drawPropeller(ctx, x, y - size * 0.52, size * 0.95, v.time);
+  }
+}
+
+/** An armed booster's targets: a pulsing gold ring and a bouncing arrow over each. */
+function drawAimMarks(ctx: CanvasRenderingContext2D, v: View) {
+  if (!v.aim) return;
+  const { l } = v;
+  const pulse = 0.5 + 0.5 * Math.sin(v.time * 7);
+  for (const id of v.aim) {
+    const vis = v.vis.get(id);
+    if (!vis) continue;
+    const size = vis.place === 'slot' ? l.slotSize : l.qSize;
+    ctx.save();
+    ctx.strokeStyle = `rgba(255,214,60,${0.6 + 0.4 * pulse})`;
+    ctx.shadowColor = '#ffd23c';
+    ctx.shadowBlur = 10 + pulse * 10;
+    ctx.lineWidth = 4;
+    rr(ctx, vis.x - size * 0.6, vis.y - size * 0.6, size * 1.2, size * 1.2, size * 0.3);
+    ctx.stroke();
+    ctx.restore();
+    const ay = vis.y - size * 0.82 - Math.abs(Math.sin(v.time * 5)) * size * 0.12;
+    ctx.fillStyle = '#ffd23c';
+    ctx.strokeStyle = '#a35b00';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(vis.x - size * 0.16, ay - size * 0.14);
+    ctx.lineTo(vis.x + size * 0.16, ay - size * 0.14);
+    ctx.lineTo(vis.x, ay + size * 0.06);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
+}
+
+/** Slot jellies sliding into the one they merged with. */
+function drawMerging(ctx: CanvasRenderingContext2D, v: View) {
+  const l = v.l;
+  for (const m of v.merging) {
+    const into = v.vis.get(m.into);
+    if (!into) continue;
+    const u = Math.min(1, m.t / 0.3);
+    const e = u * u;
+    const x = m.x + (into.x - m.x) * e;
+    const y = m.y + (into.y - m.y) * e - Math.sin(u * Math.PI) * l.slotSize * 0.6;
+    drawJelly(ctx, x, y, l.slotSize * (1 - u * 0.5), m.color, '', { face: true, mood: 'happy', squash: -0.2 * Math.sin(u * Math.PI), look: { x: Math.sign(into.x - m.x), y: 0 } });
+  }
+}
+
+/** The crane's cable and claw, hanging from the top of the screen down to the jelly it carries. */
+function drawCrane(ctx: CanvasRenderingContext2D, v: View) {
+  const fx = v.craneFx;
+  if (!fx) return;
+  const vis = v.vis.get(fx.id);
+  if (!vis) return;
+  const s = (vis.place === 'queue' ? v.l.qSize : v.l.beltSize) * 0.5;
+  const a = fx.t > 0.6 ? 1 - (fx.t - 0.6) / 0.2 : 1;
+  const top = vis.y - s * 1.1;
+  ctx.save();
+  ctx.globalAlpha = Math.max(0, a);
+  ctx.strokeStyle = '#4b4f66';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(vis.x, -10);
+  ctx.lineTo(vis.x, top);
+  ctx.stroke();
+  ctx.strokeStyle = '#6b6f86';
+  ctx.lineWidth = 5;
+  ctx.lineCap = 'round';
+  for (const d of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(vis.x, top);
+    ctx.quadraticCurveTo(vis.x + d * s * 1.1, top + s * 0.2, vis.x + d * s * 0.85, top + s * 0.9);
+    ctx.stroke();
+  }
+  ctx.fillStyle = '#ffc21a';
+  ctx.beginPath();
+  ctx.roundRect(vis.x - s * 0.35, top - s * 0.2, s * 0.7, s * 0.32, 4);
+  ctx.fill();
+  ctx.restore();
+}
+
 function drawSlotJelly(ctx: CanvasRenderingContext2D, v: View, j: Jelly) {
   const { l, st } = v;
   const vis = v.vis.get(j.id);
@@ -962,7 +1120,8 @@ function drawSlotJelly(ctx: CanvasRenderingContext2D, v: View, j: Jelly) {
     mood: worried ? 'worried' : 'idle',
     blink: blink(v, vis),
     look: { x: 0, y: -1 },
-    glow: v.point === j.id ? v.time : 0,
+    glow: v.point === j.id || v.aim?.has(j.id) ? v.time : 0,
+    dim: !!v.aim && !v.aim.has(j.id),
     alarm: vis.alarm,
   });
 }
@@ -1034,7 +1193,7 @@ function drawPanel(ctx: CanvasRenderingContext2D, v: View) {
         mood: front ? 'idle' : 'sleep',
         blink: front && blink(v, vis),
         look: { x: 0, y: -1 },
-        glow: v.point === j.id ? v.time : 0,
+        glow: v.point === j.id || v.aim?.has(j.id) ? v.time : 0,
       });
     }
   });

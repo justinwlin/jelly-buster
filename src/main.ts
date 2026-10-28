@@ -3,6 +3,7 @@ import '@fontsource/baloo-2/latin-800.css';
 import './style.css';
 import { registerSW } from 'virtual:pwa-register';
 import { launch, launchGroup, legalLaunches, locate, newState, revive, stars, step, TUNING, type Level, type State } from './sim/engine';
+import { BOOSTER_IDS, BOOSTERS, useBooster, type BoosterId } from './sim/boosters';
 import { newFeature, type Feature } from './sim/levels';
 import { PACKS } from './sim/pictures';
 import { exposed } from './sim/track';
@@ -10,11 +11,15 @@ import campaignData from './levels/campaign.json';
 import { buzz, setMusic, setSound, sfx, unlockAudio } from './game/audio';
 import { confetti, draw, drawJelly, hitTest, newView, onEvents, popup, relayout, update, type View } from './game/render';
 import { load, store, type Save } from './game/save';
+import { drawBoosterIcon } from './game/boosterArt';
+import {
+  boostersOpen, boosterStatus, buyBooster, buyLife, canBuyLife, canPlay, clock, giftBoosters, LIVES, livesApply, loseLife, nextLifeIn, owned,
+  refundLife, REVIVE_COST, reward, spendBooster, syncLives,
+} from './game/economy';
 
 registerSW({ immediate: true });
 
 const LEVELS = (campaignData as unknown as { levels: Level[] }).levels;
-const REVIVE_COST = 100;
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d')!;
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -23,6 +28,10 @@ const screen = $('screen');
 const tipEl = $('tip');
 const toastEl = $('toast');
 const ffEl = $('ff');
+const barEl = $('boosters');
+const aimEl = $('aimhint');
+/** Height of the booster bar strip. */
+const BAR_H = 78;
 
 let save: Save = load();
 setSound(save.settings.sound);
@@ -39,6 +48,10 @@ let speed = 1;
 const FAST = 3;
 /** Title-screen attract mode: a level playing itself behind the menu. */
 let demo: { st: State; view: View; wait: number; next: number } | null = null;
+/** The booster waiting for a target, if any. The belt stands still while one is armed. */
+let aim: BoosterId | null = null;
+/** Level waiting on the out-of-lives screen. */
+let waitingFor: number | null = null;
 
 // ---------------------------------------------------------------- sizing
 
@@ -59,8 +72,9 @@ function resize() {
   const { W, H, dpr } = viewport();
   canvas.width = Math.round(W * dpr);
   canvas.height = Math.round(H * dpr);
-  if (view) relayout(view, W, H, dpr);
-  if (demo) relayout(demo.view, W, H, dpr);
+  if (view) relayout(view, W, H, dpr, barH());
+  if (demo) relayout(demo.view, W, H, dpr, 0);
+  placeBar();
 }
 window.addEventListener('resize', resize);
 
@@ -97,7 +111,7 @@ function toast(msg: string, ms = 1400) {
 }
 
 /** A jelly portrait for menus and tips. */
-function jellyCanvas(color: string, n: number | string, size = 64, face = true, cls = '') {
+function jellyCanvas(color: string, n: number | string, size = 64, face = true, cls = '', extra: Parameters<typeof drawJelly>[6] = {}) {
   const c = document.createElement('canvas');
   const dpr = Math.min(3, window.devicePixelRatio || 1);
   c.width = c.height = size * dpr;
@@ -105,9 +119,46 @@ function jellyCanvas(color: string, n: number | string, size = 64, face = true, 
   if (cls) c.className = cls;
   const x = c.getContext('2d')!;
   x.scale(dpr, dpr);
-  drawJelly(x, size / 2, size / 2 + size * 0.04, size * 0.95, color, n, { face, mood: 'idle', look: { x: 0, y: 0.3 } });
+  drawJelly(x, size / 2, size / 2 + size * 0.04, size * 0.95, color, n, { face, mood: 'idle', look: { x: 0, y: 0.3 }, ...extra });
   return c;
 }
+
+/** A booster icon as a canvas, for the bar and menus. */
+function boosterCanvas(id: BoosterId, size: number) {
+  const c = document.createElement('canvas');
+  const dpr = Math.min(3, window.devicePixelRatio || 1);
+  c.width = c.height = Math.round(size * dpr);
+  c.style.width = c.style.height = `${size}px`;
+  const x = c.getContext('2d')!;
+  x.scale(dpr, dpr);
+  drawBoosterIcon(x, id, size, 0.6);
+  return c;
+}
+
+const HEART = '<svg class="heart" viewBox="0 0 24 22" aria-hidden="true"><path d="M12 21.2 10.4 19.8C4.6 14.6 1 11.3 1 7.2 1 3.9 3.6 1.3 6.9 1.3c1.9 0 3.7.9 5.1 2.3 1.4-1.4 3.2-2.3 5.1-2.3 3.3 0 5.9 2.6 5.9 5.9 0 4.1-3.6 7.4-9.4 12.6Z"/><ellipse cx="7" cy="6.4" rx="2.6" ry="1.6" fill="#fff" opacity=".55" transform="rotate(-30 7 6.4)"/></svg>';
+
+/** "Full" or the countdown to the next life. */
+function lifeClock() {
+  const ms = nextLifeIn(save, Date.now());
+  return ms === null ? 'Full' : clock(ms);
+}
+
+/** Lives pill for the title screen: hearts plus the recharge clock. */
+function livesPill() {
+  syncLives(save, Date.now());
+  return `<div class="lives-pill">${HEART}<b class="js-lives">${save.lives}</b><small class="js-life-clock">${lifeClock()}</small></div>`;
+}
+
+/** Once a second: lives recharge and every lives readout follows. */
+function tickLives() {
+  const before = save.lives;
+  syncLives(save, Date.now());
+  if (save.lives !== before) store(save);
+  document.querySelectorAll('.js-lives').forEach((el) => (el.textContent = String(save.lives)));
+  document.querySelectorAll('.js-life-clock').forEach((el) => (el.textContent = lifeClock()));
+  if (waitingFor !== null && save.lives > 0) livesBack(waitingFor);
+}
+setInterval(tickLives, 1000);
 
 function packOf(i: number) {
   const id = LEVELS[i].id.split('/')[0];
@@ -179,7 +230,11 @@ function toTitle() {
   mode = 'title';
   st = null;
   view = null;
+  waitingFor = null;
+  disarm();
   hud.classList.add('hidden');
+  barEl.classList.add('hidden');
+  toastEl.classList.add('hidden');
   ffEl.classList.add('hidden');
   hideTip();
   if (!demo) startDemo();
@@ -194,11 +249,11 @@ function toTitle() {
         <div class="row">
           <button class="btn blue" data-act="levels">Levels</button>
         </div>
-        <div class="title-stats"><span>⭐ ${starsTotal}</span><span><i class="coin sm"></i> ${save.coins}</span></div>
+        <div class="title-stats"><span>⭐ ${starsTotal}</span>${livesPill()}<span><i class="coin sm"></i> ${save.coins}</span></div>
         ${settingsToggles()}
       </div>
     </div>`,
-    { play: () => startLevel(next), levels: levelsScreen, ...toggleHandlers(toTitle) },
+    { play: () => play(next), levels: levelsScreen, ...toggleHandlers(toTitle) },
     'title',
   );
   const m = $('mascots');
@@ -229,8 +284,8 @@ function levelsScreen() {
     return `<div class="pack"><h3>${g.name}<em>★ ${got}/${(g.to - g.from) * 3}</em></h3><div class="grid">${cells}</div></div>`;
   });
   const handlers: Record<string, () => void> = { back: toTitle };
-  for (let k = 0; k <= Math.min(save.unlocked, LEVELS.length - 1); k++) handlers[`lv${k}`] = () => startLevel(k);
-  show(`<div class="panel levels"><div class="ribbon">Levels</div><div class="packs">${packs.join('')}</div><button class="btn ghost" data-act="back">Back</button></div>`, handlers);
+  for (let k = 0; k <= Math.min(save.unlocked, LEVELS.length - 1); k++) handlers[`lv${k}`] = () => play(k);
+  show(`<div class="panel levels"><div class="ribbon">Levels</div>${livesPill()}<div class="packs">${packs.join('')}</div><button class="btn ghost" data-act="back">Back</button></div>`, handlers);
   screen.querySelector('.lv.current')?.scrollIntoView({ block: 'center' });
 }
 
@@ -284,6 +339,61 @@ function setHud() {
   if (!st) return;
   $('hud-level').textContent = `Level ${levelIndex + 1}`;
   $('hud-coins').textContent = String(save.coins);
+  syncLives(save, Date.now());
+  $('hud-lives').textContent = String(save.lives);
+}
+
+/** Start a level if a life is available, otherwise offer to wait or buy one. */
+function play(i: number) {
+  if (canPlay(save, i, Date.now())) startLevel(i);
+  else noLives(i);
+}
+
+function noLives(i: number) {
+  mode = mode === 'title' ? 'title' : 'over';
+  waitingFor = i;
+  hud.classList.add('hidden');
+  barEl.classList.add('hidden');
+  const can = canBuyLife(save);
+  show(
+    `<div class="panel nolives">
+      <div class="ribbon red">Out of lives</div>
+      <div class="big-heart broken">${HEART}</div>
+      <p>A new life arrives in <b class="js-life-clock">${lifeClock()}</b></p>
+      <button class="btn orange big" data-act="buy" ${can ? '' : 'disabled'}><small>Get a life now</small><i class="coin sm"></i> ${LIVES.price}</button>
+      ${can ? '' : `<p class="hint">You have <i class="coin sm"></i> ${save.coins}. Lives come back on their own, one every ${LIVES.regenMs / 60000} minutes.</p>`}
+      <button class="btn ghost" data-act="back">Back</button>
+    </div>`,
+    {
+      buy: () => {
+        if (!buyLife(save, Date.now())) return;
+        store(save);
+        sfx.buy();
+        waitingFor = null;
+        startLevel(i);
+      },
+      back: () => {
+        waitingFor = null;
+        toTitle();
+      },
+    },
+  );
+}
+
+/** A life came back while the out-of-lives screen was up. */
+function livesBack(i: number) {
+  waitingFor = null;
+  sfx.star(0);
+  show(
+    `<div class="panel nolives">
+      <div class="ribbon">Life refilled!</div>
+      <div class="big-heart pop">${HEART}</div>
+      <p>You have ${save.lives} ${save.lives === 1 ? 'life' : 'lives'}. Go get it!</p>
+      <button class="btn big" data-act="go">Play level ${i + 1}</button>
+      <button class="btn ghost" data-act="back">Back</button>
+    </div>`,
+    { go: () => startLevel(i), back: toTitle },
+  );
 }
 
 let lastPct = -1;
@@ -299,12 +409,16 @@ function updateProgress() {
 function startLevel(i: number) {
   levelIndex = i;
   demo = null;
+  waitingFor = null;
+  disarm();
   const lvl = LEVELS[i];
   st = newState(lvl);
   const { W, H, dpr } = viewport();
   const safe = safeInsets();
   view = newView(st, W, H, dpr, safe.top, safe.bottom);
   resize();
+  barEl.classList.toggle('hidden', !barH());
+  lastBar = '';
   mode = 'play';
   acc = 0;
   lastPct = -1;
@@ -324,7 +438,10 @@ function startLevel(i: number) {
     return;
   }
   const f = newFeature(i);
-  if (f && !seen(`feature:${f}`)) {
+  if (giftBoosters(save)) {
+    store(save);
+    boostersIntro();
+  } else if (f && !seen(`feature:${f}`)) {
     mode = 'paused';
     const tip = FEATURE_TIPS[f];
     show(
@@ -353,6 +470,203 @@ function resume() {
   hideScreen();
   mode = 'play';
   last = performance.now();
+}
+
+// ---------------------------------------------------------------- boosters
+
+const barH = () => (boostersOpen(save) ? BAR_H : 0);
+
+/** The bar's buttons, built once from the registry. */
+const barButtons = new Map<BoosterId, { el: HTMLButtonElement; ctx: CanvasRenderingContext2D }>();
+function buildBar() {
+  const dpr = Math.min(3, window.devicePixelRatio || 1);
+  for (const id of BOOSTER_IDS) {
+    const el = document.createElement('button');
+    el.className = 'boost';
+    el.dataset.b = id;
+    el.setAttribute('aria-label', BOOSTERS[id].name);
+    el.innerHTML = `<canvas></canvas><span class="badge"></span><span class="tag"><i class="coin sm"></i>${BOOSTERS[id].price}</span>`;
+    const c = el.querySelector('canvas')!;
+    c.width = c.height = 50 * dpr;
+    const ctx = c.getContext('2d')!;
+    ctx.scale(dpr, dpr);
+    el.addEventListener('pointerdown', (e) => {
+      e.stopPropagation();
+      tapBooster(id);
+    });
+    barEl.append(el);
+    barButtons.set(id, { el, ctx });
+  }
+}
+
+function placeBar() {
+  const b = view?.l.bar;
+  if (!b || !b.h) return;
+  Object.assign(barEl.style, { left: `${b.x}px`, top: `${b.y}px`, width: `${b.w}px`, height: `${b.h}px` });
+}
+
+let lastBar = '';
+/** Badges and states follow the game: count, buy (+ price), too poor, or nothing to use it on. */
+function refreshBar(time: number) {
+  if (!st || barEl.classList.contains('hidden')) return;
+  const sig: string[] = [aim ?? '', String(save.coins)];
+  for (const id of BOOSTER_IDS) {
+    const { ctx } = barButtons.get(id)!;
+    const status = boosterStatus(save, st, id);
+    const n = owned(save, id);
+    sig.push(`${id}:${status}:${n}`);
+    ctx.clearRect(0, 0, 50, 50);
+    drawBoosterIcon(ctx, id, 50, aim === id || status === 'use' || status === 'buy' ? time : 0.6);
+  }
+  const key = sig.join('|');
+  if (key === lastBar) return;
+  lastBar = key;
+  for (const id of BOOSTER_IDS) {
+    const { el } = barButtons.get(id)!;
+    const status = boosterStatus(save, st, id);
+    const n = owned(save, id);
+    el.className = `boost s-${status} ${n > 0 ? 'has' : 'none'} ${aim === id ? 'armed' : ''}`;
+    el.querySelector('.badge')!.textContent = n > 0 ? String(n) : '+';
+  }
+}
+
+function tapBooster(id: BoosterId) {
+  unlockAudio();
+  if (!st || !view || mode !== 'play') return;
+  if (aim === id) {
+    sfx.click();
+    disarm();
+    return;
+  }
+  disarm();
+  const def = BOOSTERS[id];
+  const status = boosterStatus(save, st, id);
+  const el = barButtons.get(id)!.el;
+  if (status === 'idle' || status === 'poor') {
+    sfx.deny();
+    buzz(save.settings.haptics, 25);
+    toast(status === 'idle' ? def.unusable : `${def.name} costs ${def.price} coins`);
+    el.classList.remove('nope');
+    void el.offsetWidth;
+    el.classList.add('nope');
+    return;
+  }
+  sfx.click();
+  if (status === 'buy') shopSheet(id);
+  else arm(id);
+}
+
+/** Buying is a deliberate step: pause and show what it does and what it costs. */
+function shopSheet(id: BoosterId) {
+  if (!st) return;
+  const def = BOOSTERS[id];
+  mode = 'paused';
+  show(
+    `<div class="panel shop">
+      <div class="ribbon">${def.name}</div>
+      <div class="shop-icon" id="shop-icon"></div>
+      <p>${def.desc}</p>
+      <button class="btn big" data-act="buy"><small>Buy and use</small><i class="coin sm"></i> ${def.price}</button>
+      <p class="hint">You have <i class="coin sm"></i> ${save.coins}</p>
+      <button class="btn ghost" data-act="cancel">Not now</button>
+    </div>`,
+    {
+      buy: () => {
+        if (!st || !buyBooster(save, st, id)) return resume();
+        store(save);
+        sfx.buy();
+        setHud();
+        resume();
+        arm(id);
+      },
+      cancel: resume,
+    },
+  );
+  $('shop-icon').append(boosterCanvas(id, 96));
+}
+
+/** Get a booster ready: pick a target on the board, or open the crane's queue view. */
+function arm(id: BoosterId) {
+  if (!st || !view) return;
+  const def = BOOSTERS[id];
+  const targets = def.targets(st);
+  if (!targets.length) return;
+  if (def.pick === 'queue') return cranePicker(id);
+  const auto = def.autoPick?.(st);
+  if (auto !== null && auto !== undefined) return applyBooster(id, auto);
+  aim = id;
+  view.aim = new Set(targets);
+  aimEl.textContent = def.hint;
+  aimEl.style.top = `${view.l.bar.y - 44}px`;
+  aimEl.classList.remove('hidden');
+}
+
+function disarm() {
+  if (!aim) return;
+  aim = null;
+  if (view) view.aim = null;
+  aimEl.classList.add('hidden');
+}
+
+function applyBooster(id: BoosterId, target: number) {
+  disarm();
+  if (!st || !useBooster(st, id, target)) return;
+  spendBooster(save, id);
+  store(save);
+  buzz(save.settings.haptics, [15, 30, 15]);
+}
+
+/** The crane's view: every jelly in the queue, scrollable, with the ones it can grab lit up. */
+function cranePicker(id: BoosterId) {
+  if (!st) return;
+  const s = st;
+  mode = 'paused';
+  const ok = new Set(BOOSTERS[id].targets(s));
+  const handlers: Record<string, () => void> = { cancel: resume };
+  const cols = s.cols
+    .map(
+      (col) =>
+        `<div class="ccol">${col
+          .map((j) => {
+            if (ok.has(j.id))
+              handlers[`cj${j.id}`] = () => {
+                resume();
+                applyBooster(id, j.id);
+              };
+            return `<button class="cj ${ok.has(j.id) ? '' : 'off'}" data-act="cj${j.id}" data-j="${j.id}" ${ok.has(j.id) ? '' : 'disabled'}>${j.link >= 0 ? '<i class="tie">🔗</i>' : ''}</button>`;
+          })
+          .join('')}</div>`,
+    )
+    .join('');
+  show(
+    `<div class="panel crane-panel">
+      <div class="ribbon">Crane</div>
+      <p class="hint">${BOOSTERS[id].hint}. Scroll to see the whole queue.</p>
+      <div class="cscroll"><div class="ccols">${cols}</div></div>
+      <button class="btn ghost" data-act="cancel">Cancel</button>
+    </div>`,
+    handlers,
+  );
+  for (const col of s.cols)
+    for (const j of col) {
+      const b = screen.querySelector<HTMLElement>(`[data-j="${j.id}"]`);
+      b?.prepend(jellyCanvas(s.lvl.palette[j.color], j.n, 54, false, '', { ice: j.ice }));
+    }
+}
+
+function boostersIntro() {
+  mode = 'paused';
+  show(
+    `<div class="panel intro">
+      <div class="ribbon">Boosters!</div>
+      <p>Stuck? Boosters bail you out. Here's one of each, on the house.</p>
+      <div class="intro-list">${BOOSTER_IDS.map((id) => `<div class="intro-row"><span data-icon="${id}"></span><div><b>${BOOSTERS[id].name}</b><small>${BOOSTERS[id].desc}</small></div></div>`).join('')}</div>
+      <p class="hint">More cost gold, and the shop only sells one when you can use it.</p>
+      <button class="btn" data-act="ok">Let's go</button>
+    </div>`,
+    { ok: resume },
+  );
+  for (const id of BOOSTER_IDS) screen.querySelector(`[data-icon="${id}"]`)?.append(boosterCanvas(id, 58));
 }
 
 function tryLaunch(id: number) {
@@ -393,6 +707,12 @@ canvas.addEventListener('pointerdown', (e) => {
   unlockAudio();
   if (!view || mode !== 'play') return;
   const id = hitTest(view, e.clientX, e.clientY);
+  if (aim) {
+    // Armed booster: a glowing jelly takes it, anything else puts it away.
+    if (id !== null && view.aim?.has(id)) applyBooster(aim, id);
+    else disarm();
+    return;
+  }
   if (id !== null) tryLaunch(id);
 });
 
@@ -421,6 +741,9 @@ function handleEvents() {
       buzz(save.settings.haptics, 18);
     } else if (e.k === 'launch') sfx.launch();
     else if (e.k === 'loop') sfx.enter();
+    else if (e.k === 'lift') sfx.lift();
+    else if (e.k === 'crane') sfx.crane();
+    else if (e.k === 'merge') sfx.merge();
     else if (e.k === 'thaw') sfx.thaw();
     else if (e.k === 'enter') sfx.enter();
     else if (e.k === 'park') {
@@ -485,9 +808,9 @@ function won() {
   hideTip();
   const s = stars(st);
   const lvl = st.lvl;
-  const reward = 20 + s * 10;
+  const gold = reward(s);
   const before = save.coins;
-  save.coins += reward;
+  save.coins += gold;
   save.stars[lvl.id] = Math.max(save.stars[lvl.id] ?? 0, s);
   if (levelIndex + 1 > save.unlocked) save.unlocked = Math.min(LEVELS.length, levelIndex + 1);
   if (levelIndex === 0) seen('tutorial');
@@ -514,13 +837,13 @@ function won() {
         ${hasNext ? '<button class="btn big" data-act="next">Next level</button>' : '<p>You cleared every picture! More packs coming soon.</p>'}
         <button class="btn ghost" data-act="menu">Menu</button>
       </div>`,
-      { next: () => startLevel(levelIndex + 1), menu: toTitle },
+      { next: () => play(levelIndex + 1), menu: toTitle },
     );
     for (let k = 0; k < s; k++) setTimeout(() => sfx.star(k), (0.25 + (k + 1) * 0.3) * 1000 + 150);
     setTimeout(() => {
       const el = $('reward-n');
       if (!el) return;
-      countUp(el, 0, reward, 600, () => sfx.coin());
+      countUp(el, 0, gold, 600, () => sfx.coin());
       setTimeout(() => {
         const r = document.getElementById('reward');
         if (r) flyCoins(r, 6);
@@ -531,30 +854,45 @@ function won() {
   }, 1700);
 }
 
+/** A row of hearts; `cracked` marks the one that was just lost. */
+function heartsRow(cracked: number) {
+  return `<div class="hearts">${Array.from({ length: LIVES.max }, (_, k) => `<span class="${k < save.lives ? 'on' : ''} ${k === cracked ? 'crack' : ''}">${HEART}</span>`).join('')}</div>`;
+}
+
 function lost(reason: 'full' | 'stuck') {
   if (!st) return;
   mode = 'over';
   hideTip();
+  disarm();
   sfx.lose();
   buzz(save.settings.haptics, [60, 60, 60]);
+  // The life goes now (so closing the app doesn't dodge it); continuing gives it back.
+  const costsLife = livesApply(levelIndex);
+  loseLife(save, levelIndex, Date.now());
+  store(save);
+  setHud();
+  if (costsLife) setTimeout(() => sfx.heart(), 500);
   const cost = REVIVE_COST * (st.revives + 1);
   const can = reason === 'full' && save.coins >= cost;
   const total = st.lvl.cells.filter((c) => c >= 0).length;
   const pct = Math.round((1 - st.left / total) * 100);
+  const out = costsLife && save.lives <= 0;
   show(
     `<div class="panel lose">
       <div class="ribbon red">${reason === 'full' ? 'Out of room!' : 'No moves left'}</div>
       <div id="sad-j" class="mascots"></div>
       <p>${reason === 'full' ? 'A jelly came back with hits left and every slot was full.' : 'Nothing left can reach a cube of its color.'}</p>
       <div class="meter"><div style="width:${pct}%"></div><span>${pct}% cleared</span></div>
-      ${reason === 'full' ? `<button class="btn orange big" data-act="revive" ${can ? '' : 'disabled'}><small>+1 slot and keep going</small><i class="coin sm"></i> ${cost}</button>` : ''}
-      <button class="btn" data-act="retry">Try again</button>
+      ${costsLife ? heartsRow(save.lives) : ''}
+      ${reason === 'full' ? `<button class="btn orange big" data-act="revive" ${can ? '' : 'disabled'}><small>+1 slot, keep going${costsLife ? ' and keep your life' : ''}</small><i class="coin sm"></i> ${cost}</button>` : ''}
+      <button class="btn" data-act="retry">${out ? `Out of lives · <span class="js-life-clock">${lifeClock()}</span>` : 'Try again'}</button>
       <button class="btn ghost" data-act="menu">Menu</button>
     </div>`,
     {
       revive: () => {
         if (!st || !view || save.coins < cost) return;
         save.coins -= cost;
+        refundLife(save, levelIndex);
         store(save);
         revive(st);
         view.lost = null;
@@ -563,7 +901,7 @@ function lost(reason: 'full' | 'stuck') {
         relayout(view, W, H, dpr);
         resume();
       },
-      retry: () => startLevel(levelIndex),
+      retry: () => play(levelIndex),
       menu: toTitle,
     },
   );
@@ -579,17 +917,29 @@ function lost(reason: 'full' | 'stuck') {
 
 function pauseMenu() {
   if (mode !== 'play') return;
+  disarm();
   mode = 'paused';
+  // Walking out of a level you've started costs the life it would have cost to lose it.
+  const quitCost = !!st && st.status === 'play' && st.launches > 0 && livesApply(levelIndex);
+  const quit = (then: () => void) => () => {
+    if (quitCost) {
+      loseLife(save, levelIndex, Date.now());
+      store(save);
+      sfx.heart();
+    }
+    then();
+  };
+  const cost = quitCost ? ` <span class="cost">−1 ${HEART}</span>` : '';
   show(
     `<div class="panel"><div class="ribbon">Paused</div>
       <button class="btn big" data-act="resume">Resume</button>
-      <button class="btn blue" data-act="restart">Restart level</button>
+      <button class="btn blue" data-act="restart">Restart level${cost}</button>
       ${settingsToggles()}
-      <button class="btn ghost" data-act="menu">Menu</button></div>`,
+      <button class="btn ghost" data-act="menu">Menu${cost}</button></div>`,
     {
       resume,
-      restart: () => startLevel(levelIndex),
-      menu: toTitle,
+      restart: quit(() => play(levelIndex)),
+      menu: quit(toTitle),
       ...toggleHandlers(() => {
         mode = 'play';
         pauseMenu();
@@ -639,7 +989,7 @@ function frame(now: number) {
     const auto = mode === 'play' && st.status === 'play' && st.cols.every((c) => !c.length);
     speed += ((auto ? FAST : 1) - speed) * Math.min(1, dt * 3);
     ffEl.classList.toggle('hidden', speed < 1.3);
-    if (mode === 'play') {
+    if (mode === 'play' && !aim) {
       acc += dt * speed;
       while (acc >= h) {
         step(st);
@@ -651,8 +1001,9 @@ function frame(now: number) {
       // Keep the belt running for the celebration (no new events matter).
       st.events = [];
     }
-    update(view, mode === 'paused' ? 0 : dt * (mode === 'play' ? speed : 1));
+    update(view, mode === 'paused' ? 0 : dt * (mode === 'play' && !aim ? speed : 1));
     draw(ctx, view);
+    refreshBar(now / 1000);
   } else if (demo) {
     const d = demo;
     acc += dt;
@@ -685,6 +1036,7 @@ function frame(now: number) {
   requestAnimationFrame(frame);
 }
 
+buildBar();
 resize();
 toTitle();
 requestAnimationFrame(frame);
@@ -700,6 +1052,12 @@ requestAnimationFrame(frame);
   save: () => save,
   start: (i: number) => startLevel(i),
   tap: (id: number) => tryLaunch(id),
+  booster: (id: BoosterId) => tapBooster(id),
+  aim: () => aim,
+  setSave: (patch: Partial<Save>) => {
+    Object.assign(save, patch);
+    store(save);
+  },
   win: () => {
     if (!st) return;
     st.cells.fill(-1);

@@ -82,11 +82,56 @@ for (const [name, opts] of Object.entries(profiles)) {
   // A late level with ice, ropes and hidden jellies plays without errors.
   await z(page, 'z.save().unlocked = 99; z.start(29)');
   await page.waitForTimeout(300);
+  check('the booster gift shows once the shop opens', await page.isVisible('.panel.intro'));
+  await page.click('[data-act="ok"]', { force: true });
+  check('one of each booster is gifted', JSON.stringify(await z(page, 'return z.save().boosters')) === '{"propeller":1,"crane":1,"merge":1}');
+  check('the booster bar shows', await page.isVisible('#boosters .boost'));
   for (let t = 0; t < 24; t++) {
     await z(page, `const s = z.state(); if (s.status !== 'play') return; for (const id of [...s.slots.filter(Boolean).map(j => j.id), ...s.cols.map(c => c[0]?.id).filter(Boolean)]) z.tap(id);`);
     await page.waitForTimeout(250);
   }
   check('a mechanics level runs', (await z<number>(page, 'return z.state().shots')) > 0);
+
+  // Propeller: arm it, tap a glowing jelly on the canvas, it takes off.
+  await z(page, 'z.start(29)');
+  await page.waitForTimeout(200);
+  await z(page, `z.booster('propeller')`);
+  check('tapping a booster arms it', (await z<string>(page, 'return z.aim()')) === 'propeller' && (await page.isVisible('#aimhint')));
+  const pt = await z<{ x: number; y: number }>(page, 'const v = z.view(); const vis = v.vis.get([...v.aim][0]); return { x: vis.x, y: vis.y };');
+  await page.mouse.click(pt.x, pt.y);
+  await page.waitForTimeout(100);
+  check('a propeller jelly takes off', (await z<number>(page, 'return z.state().flyers.length')) === 1 && (await z<number>(page, 'return z.save().boosters.propeller')) === 0);
+  check('only one propeller at a time', (await page.getAttribute('[data-b="propeller"]', 'class'))?.includes('s-idle') ?? false);
+  await page.waitForFunction(() => (window as any).__jb.state().flyers.length === 0, null, { timeout: 15000 });
+
+  // Shop: out of propellers, so the next one is bought (and armed) from a sheet.
+  await z(page, `z.setSave({ coins: 500 }); z.booster('propeller')`);
+  check('buying shows a sheet with the price', await page.isVisible('.panel.shop'));
+  await page.click('[data-act="buy"]', { force: true });
+  await page.waitForTimeout(100);
+  check('buying spends coins and arms the booster', (await z<number>(page, 'return z.save().coins')) === 380 && (await z<string>(page, 'return z.aim()')) === 'propeller');
+  await z(page, `z.booster('propeller')`);
+
+  // Crane: the whole queue in a scroll view; picking one drops it on the belt.
+  await z(page, `z.booster('crane')`);
+  check('the crane shows the whole queue', (await page.locator('.cj').count()) === (await z<number>(page, 'return z.state().cols.flat().length')));
+  const lifted = await page.getAttribute('.cj:not(.off) >> nth=0', 'data-j');
+  await page.click('.cj:not(.off) >> nth=0', { force: true });
+  await page.waitForTimeout(100);
+  check('the crane drops the jelly on the belt', (await z<number[]>(page, 'const s = z.state(); return [...s.pending, ...s.belt.map(r => r.j)].map(j => j.id)')).includes(Number(lifted)));
+
+  // Lives: losing with one life left sends you to the out-of-lives screen on retry.
+  await z(page, `z.setSave({ lives: 1, lifeAt: null, coins: 400 }); z.start(29)`);
+  await page.waitForTimeout(200);
+  await z(page, `const s = z.state(); s.slots = s.slots.map((j, i) => ({ id: 900 + i, color: 0, n: 1, ice: 0, link: -1, hidden: false }));
+    const j = s.cols.find(c => c[0] && c[0].link < 0 && !c[0].ice)[0]; j.n = 999; z.tap(j.id);`);
+  await page.waitForSelector('[data-act="revive"]', { timeout: 20000 });
+  check('losing costs a life', (await z<number>(page, 'return z.save().lives')) === 0 && (await page.locator('.hearts span.crack').count()) === 1);
+  await page.click('[data-act="retry"]', { force: true });
+  check('no lives left: retry shows the wait-or-buy screen', await page.isVisible('.panel.nolives'));
+  await page.click('[data-act="buy"]', { force: true });
+  await page.waitForTimeout(200);
+  check('buying a life starts the level', (await z<string>(page, 'return z.mode')) === 'play' && (await z<number>(page, 'return z.save().lives')) === 1);
 
   check('no console errors', errors.length === 0, errors.slice(0, 3).join(' | '));
   await ctx.close();

@@ -22,11 +22,12 @@ The public URL is then `https://$RUNPOD_POD_ID-3002.proxy.runpod.net`.
 |---|---|
 | `src/sim/engine.ts` | The rules. Deterministic and integer-only: the belt, firing, slots, ice, ropes, win and lose. |
 | `src/sim/track.ts` | The belt as a list of stations around the picture, and line-of-sight. |
+| `src/sim/boosters.ts` | The booster registry: name, price, how a target is picked, and the engine action. |
 | `src/sim/bots.ts` | Headless players (`spam`, `random`, `greedy`, `human`, `smart`) used for tuning and level checks. |
 | `src/sim/levels.ts` | Turns a picture into a level: cubes, then jellies dealt into columns, then mechanics. It also searches for a deal that passes the bot checks. |
 | `src/sim/pictures/` | The picture packs: hand-drawn pixel art in palette letters. |
 | `src/levels/campaign.json` | The built levels the game ships. Generated; don't edit it by hand. |
-| `src/game/` | Browser side: layout, canvas rendering, audio and saves. |
+| `src/game/` | Browser side: layout, canvas rendering, audio and saves. `economy.ts` holds lives, rewards and the booster shop as pure functions on the save. `boosterArt.ts` draws the booster icons and the propeller. |
 | `src/main.ts` | The app: screens, input, game loop and test hooks (`window.__jb`). |
 | `scripts/` | Level builder, sim report, e2e, screenshots, icons and art previews. |
 | `tests/` | Vitest: rule tests, plus checks that every shipped level is valid and beatable. |
@@ -71,11 +72,35 @@ To add a new pack, create the file and list it in `src/sim/pictures/index.ts`.
    - `need`: the fewest slots the lookahead bot needs to win.
    - `human`: wins out of 3 for a bot that reacts slower and sometimes picks a worse jelly.
    - `spam`: wins out of 8 for the queue-spamming bot.
+   - `boosted`: wins out of 3 for the human-like bot carrying one of each booster.
 6. **Accept or retry.** The builder tries, gentlest first: the base deal, then more and smaller jellies, then bigger jellies (they need more than one lap, so they come back to a slot more often). It ships the first deal that is both of these:
-   - **Beatable with margin:** `need` ≤ 3 of 5 slots for the first 12 levels, ≤ 4 after that, and the human-like bot wins at least 2 of 3.
-   - **Interesting:** spam wins no more often than the level's target. The target is 8/8 (no requirement) for the first 6 levels, then 6, 5, 4, and 3 in the encore (`spamCap` in `src/sim/levels.ts`).
+   - **Beatable with margin:** `need` ≤ 3 of 5 slots for the first 12 levels and ≤ 4 after that. The human-like bot wins at least 2 of 3. From level 21 it only needs to win 1 of 3, but `boosted` must be 3 of 3.
+   - **Interesting:** spam wins no more often than the level's target. The target is 8/8 (no requirement) for the first 6 levels, then 5, 4, 3, and 2 in the encore (`spamCap` in `src/sim/levels.ts`).
 
    If no deal is interesting, it ships the beatable deal spam does worst on. It never ships one that fails the margin.
+
+### Boosters
+
+A booster is one entry in `BOOSTERS` (`src/sim/boosters.ts`):
+
+- `targets(st)`: the jelly ids it can be used on right now. Empty means it can't be used, so the bar greys it out and the shop won't sell it.
+- `apply(st, id)`: the engine action (`lift`, `crane` and `merge` in `engine.ts`). It's deterministic like the rest of the rules.
+- `pick`: `'board'` (tap a glowing jelly) or `'queue'` (the crane's scroll view). `autoPick` skips the choice when every target would do the same thing.
+
+To add one:
+
+1. Write its target list and action in `engine.ts`.
+2. Add a registry entry.
+3. Draw its icon in `boosterArt.ts` (a `Record`, so it won't compile without one).
+4. Teach the bots in `useKit()` (`bots.ts`) when to use it.
+
+The bar, the shop, saves and the level checks pick it up from the registry.
+
+Booster rules that keep things fair:
+
+- Every cube of a color always matches the hits its jellies have left, and a merge only adds hits together, so a propeller always finds exactly enough cubes.
+- Propeller and crane count as sending a jelly out, so they melt ice.
+- The level checker plays every deal twice with the human-like bot: once without boosters and once with one of each (`boosted`). From level 21 (`TOUGH_FROM`), a deal may be harder than the bot always wins without help, as long as it wins with the kit. `harden()` then keeps going until a careful player loses one game in three.
 
 ### What the simulation taught us
 

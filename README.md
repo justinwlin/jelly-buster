@@ -23,6 +23,20 @@ A puzzle game about sending jellies around a conveyor belt so they munch every c
 | 18 | **Mystery**: the jelly's color stays hidden until it reaches the front. |
 | 22 | **Long ropes**: a linked partner starts below the visible rows, so you dig down to free it. |
 
+## Boosters and lives
+
+From level 4 there's a booster bar under the queue. You get one of each for free, and after that they cost gold. The shop only sells a booster when you can use it right then, so a bought booster is never wasted.
+
+| Booster | Price | What it does |
+|---|---|---|
+| **Propeller** | 120 | A slot jelly or a queue front flies up over the middle of the picture and fires at every cube of its color, even buried ones, until it's done. One at a time. |
+| **Crane** | 100 | Opens the whole queue in a scroll view. Pick any jelly, even a frozen, tied or buried one, and it's dropped on the belt. Its ice cracks and its rope is cut. Needs room on the belt. |
+| **Merge** | 60 | Waiting jellies of the same color squish into one, freeing their slots. |
+
+The belt stops while you pick a target.
+
+**Lives.** You have 3. Losing a level costs one, and so does quitting a level you've started. Lives come back one every 10 minutes. With none left you can wait, or buy one for 150 gold. Continuing after running out of slots (+1 slot for gold) keeps your life. The first three levels are free.
+
 ## Levels
 
 The pictures are hand-drawn pixel art in themed packs:
@@ -39,7 +53,7 @@ After those 50, an encore round replays every picture mirrored, with harder deal
 Every level is checked before it ships. `npm run levels` turns each picture into jellies, and bots play each candidate deal. A deal ships only if it passes all of these:
 
 - It's winnable with spare slots: a lookahead bot needs at most 3 of 5 slots early on, and at most 4 later.
-- A human-like bot (slower, sometimes picks wrong) wins at least 2 of 3 tries.
+- A human-like bot (slower, sometimes picks wrong) wins at least 2 of 3 tries. From level 21 the deals are tougher: the bot without boosters has to win at least once, and with one of each booster it has to win every time.
 - Blind spamming of the queue doesn't win more often than the level's target allows. The queue order is searched to make spamming fail, while a careful player still always wins.
 
 See [docs/development.md](docs/development.md) for how it works.

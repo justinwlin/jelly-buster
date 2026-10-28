@@ -39,11 +39,13 @@ export interface Layout {
   /** Size of a jelly on the belt. */
   beltSize: number;
   landscape: boolean;
+  /** Booster bar strip under the queue (h = 0 when there's no bar). */
+  bar: { x: number; y: number; w: number; h: number };
 }
 
 const TOP_BAR = 78;
 
-export function computeLayout(W: number, H: number, gw: number, gh: number, nSlots: number, nCols: number, safeTop = 0, safeBottom = 0): Layout {
+export function computeLayout(W: number, H: number, gw: number, gh: number, nSlots: number, nCols: number, safeTop = 0, safeBottom = 0, barH = 0): Layout {
   const landscape = W > H * 1.15;
   // Board size in cube units: picture + belt on both sides.
   const gapU = 2.3;
@@ -61,16 +63,16 @@ export function computeLayout(W: number, H: number, gw: number, gh: number, nSlo
     cs = Math.min(availW / bw, availH / bh);
     boardX = Math.max(12, (W * 0.58 - bw * cs) / 2);
     boardY = top + (availH - bh * cs) / 2;
-    panel = { x: boardX + bw * cs + 16, y: top, w: W - (boardX + bw * cs + 16) - 12, h: availH };
+    panel = { x: boardX + bw * cs + 16, y: top, w: W - (boardX + bw * cs + 16) - 12, h: availH - barH };
   } else {
-    // Leave room below for slots + about 2.6 queue rows.
-    const below = Math.min(H * 0.4, 380);
+    // Leave room below for slots + about 2.6 queue rows, and the booster bar.
+    const below = Math.min(H * 0.4, 380) + barH * 0.7;
     const availH = H - top - below - safeBottom;
     cs = Math.min((W - 16) / bw, availH / bh);
     boardX = (W - bw * cs) / 2;
     boardY = top + Math.max(0, (availH - bh * cs) / 2);
     const y = boardY + bh * cs + 8;
-    panel = { x: 8, y, w: W - 16, h: H - y - safeBottom - 6 };
+    panel = { x: 8, y, w: W - 16, h: H - y - safeBottom - 6 - barH };
   }
   cs = Math.floor(cs * 4) / 4;
   const gap = gapU * cs;
@@ -115,6 +117,7 @@ export function computeLayout(W: number, H: number, gw: number, gh: number, nSlo
     panelW: landscape ? W - panel.x + 8 : W,
     beltSize: lane * 1.02,
     landscape,
+    bar: { x: panel.x, y: panel.y + panel.h, w: panel.w, h: barH },
   };
 }
 
