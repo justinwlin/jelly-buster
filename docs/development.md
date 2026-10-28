@@ -65,7 +65,7 @@ To add a new pack, create the file and list it in `src/sim/pictures/index.ts`.
 
 `npm run levels` does the work offline, so the game never ships an unchecked level.
 
-1. **Picture to cubes.** Each letter becomes a cube color. Starting at level 16, every fourth level pairs two different pictures from the same pack. Both are centered on one grid. White playable cubes cover only cells where the hidden picture extends past the first. The entire first picture must be cleared before the second appears or can be targeted; firing pauses briefly for the reveal.
+1. **Picture to cubes.** Each letter becomes a cube color. Starting at level 16, every fourth level pairs two different pictures from the same pack. Both are centered on one grid. White playable cubes cover only cells where the hidden picture extends past the first. Cleared spots show the second picture through a nearly opaque pale veil, and its colors leave a faint sheen on intact cubes. The entire first picture must be cleared before the second can be targeted; it then slides in with a glint during the brief firing pause.
 2. **Jellies.** Each color's cubes are split into jellies (multiples of 5). They're ordered by when their cubes get uncovered, peeling the picture from the outside in.
 3. **Deal.** The jellies are dealt into 2–5 columns (it varies per level), then made harder:
    - a little scrambling;

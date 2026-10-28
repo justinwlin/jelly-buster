@@ -132,6 +132,8 @@ export interface View {
   won: number | null;
   /** Lose vignette clock. */
   lost: number | null;
+  /** Seconds into the hidden picture sliding into place. */
+  reveal: number | null;
   safeTop: number;
   safeBottom: number;
   // Baked layers.
@@ -174,6 +176,7 @@ export function newView(st: State, W: number, H: number, dpr: number, safeTop = 
     launcherPulse: 0,
     won: null,
     lost: null,
+    reveal: null,
     safeTop,
     safeBottom,
     bg: null,
@@ -275,6 +278,7 @@ export function onEvents(v: View, evs: SimEvent[]) {
     } else if (e.k === 'reveal') {
       v.picDirty = true;
       v.ghosts.clear();
+      v.reveal = 0;
     } else if (e.k === 'done') {
       const p = vis ? { x: vis.x, y: vis.y } : stationPos(l, e.s);
       const color = st.lvl.palette[v.lastColor.get(e.id) ?? 0];
@@ -517,6 +521,7 @@ export function update(v: View, dt: number) {
   v.quake *= Math.exp(-dt * 9);
   if (v.won !== null) v.won += dt;
   if (v.lost !== null) v.lost += dt;
+  if (v.reveal !== null && (v.reveal += dt) >= 1) v.reveal = null;
   if (v.shake && (v.shake.t -= dt) <= 0) v.shake = null;
   if (v.ropeHint && (v.ropeHint.t -= dt) <= 0) v.ropeHint = null;
 }
@@ -783,6 +788,19 @@ function bakePicture(v: View) {
   const { w } = st.lvl;
   // A cube still flying toward its shot is drawn as it was, on top of whatever it uncovers.
   const top = (i: number) => v.ghosts.get(i) ?? st.cells[i];
+  // The second picture is visible through a nearly opaque veil only where the first
+  // picture has been cleared. These are visual hints; the engine still targets top cells.
+  if (st.layer === 0 && st.lvl.underName) {
+    for (let i = 0; i < st.under.length; i++) {
+      const below = st.under[i];
+      if (below < 0 || top(i) >= 0) continue;
+      const x = (i % w) * cs;
+      const y = Math.floor(i / w) * cs;
+      ctx.drawImage(cubeSprite(v, st.lvl.palette[below]), x, y, cs, cs);
+      ctx.fillStyle = 'rgba(239,242,255,0.82)';
+      ctx.fillRect(x, y, cs, cs);
+    }
+  }
   // Soft contact shadow under the cubes.
   ctx.fillStyle = 'rgba(40,25,20,0.28)';
   for (let i = 0; i < st.cells.length; i++) if (top(i) >= 0) ctx.fillRect((i % w) * cs + cs * 0.12, Math.floor(i / w) * cs + cs * 0.22, cs, cs);
@@ -792,8 +810,44 @@ function bakePicture(v: View) {
     const x = (i % w) * cs;
     const y = Math.floor(i / w) * cs;
     ctx.drawImage(cubeSprite(v, st.lvl.palette[c]), x, y, cs, cs);
+    // Let the underlying color leave a soft sheen on intact top cubes.
+    const below = st.layer === 0 ? st.under[i] : -1;
+    if (below >= 0) {
+      ctx.globalAlpha = 0.12;
+      ctx.fillStyle = st.lvl.palette[below];
+      ctx.fillRect(x + cs * 0.08, y + cs * 0.06, cs * 0.84, cs * 0.72);
+      ctx.globalAlpha = 1;
+    }
   }
   v.picDirty = false;
+}
+
+/** A diagonal highlight clipped to the arriving cubes, not the empty board. */
+function drawRevealGlint(ctx: CanvasRenderingContext2D, v: View) {
+  const t = v.reveal;
+  if (t === null || t < 0.14 || t > 0.92) return;
+  const { l, st } = v;
+  const u = (t - 0.14) / 0.78;
+  const width = l.gw * l.cs;
+  const height = l.gh * l.cs;
+  const sweep = -width * 0.3 + u * width * 1.6;
+  const band = l.cs * 3;
+  ctx.save();
+  ctx.beginPath();
+  for (let i = 0; i < st.cells.length; i++) {
+    if (st.cells[i] < 0) continue;
+    ctx.rect(l.px + (i % st.lvl.w) * l.cs, l.py + Math.floor(i / st.lvl.w) * l.cs, l.cs, l.cs);
+  }
+  ctx.clip();
+  const g = ctx.createLinearGradient(l.px + sweep - band, l.py + height, l.px + sweep + band, l.py);
+  g.addColorStop(0, 'rgba(255,255,255,0)');
+  g.addColorStop(0.42, 'rgba(255,255,255,0.06)');
+  g.addColorStop(0.5, 'rgba(255,255,255,0.68)');
+  g.addColorStop(0.58, 'rgba(255,255,255,0.12)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(l.px, l.py, width, height);
+  ctx.restore();
 }
 
 // ---------------------------------------------------------------- the frame
@@ -812,8 +866,15 @@ export function draw(ctx: CanvasRenderingContext2D, v: View) {
   // The picture: baked cubes, a white flash on cubes that just popped.
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, (l.px + qx) * dpr, (l.py + qy) * dpr);
+  if (v.reveal !== null) {
+    const u = Math.min(1, v.reveal / 0.8);
+    const ease = 1 - Math.pow(1 - u, 3);
+    ctx.globalAlpha = 0.22 + 0.78 * ease;
+    ctx.translate(0, (1 - ease) * l.cs * 1.3 * dpr);
+  }
   ctx.drawImage(v.pic!, 0, 0);
   ctx.restore();
+  if (v.reveal !== null) drawRevealGlint(ctx, v);
   for (const f of v.flashes) {
     const u = f.t / 0.16;
     const p = cellPt(l, f.cell, st.lvl.w);

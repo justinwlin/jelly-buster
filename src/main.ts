@@ -351,7 +351,7 @@ function levelsScreen() {
 const FEATURE_TIPS: Record<Feature, { title: string; text: string }> = {
   locked: { title: 'Locked slots', text: 'Some levels start with fewer open slots. Tap a lock to open it with gold, for this level only.' },
   hard: { title: 'Hard levels', text: 'Every fifth level is a hard one: a tougher deal and fewer open slots, but double gold. Boosters help!' },
-  layers: { title: 'Surprise pictures', text: 'Clear the whole first picture to reveal a different one underneath. White cubes cover places where its shape sticks out.' },
+  layers: { title: 'Surprise pictures', text: 'Clear the first picture to reveal a different one underneath. You can see its pale colors through cleared spots. White cubes cover places where its shape sticks out.' },
   ice: { title: 'Frozen jellies', text: 'They thaw after you send out as many jellies as the number on the ice.' },
   rope: { title: 'Linked jellies', text: 'Linked jellies go out together, two or three at a time. Every one of them must be free to leave.' },
   hidden: { title: 'Mystery jellies', text: 'Their color stays hidden until they reach the front.' },

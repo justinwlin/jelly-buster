@@ -125,6 +125,9 @@ for (const [name, opts] of Object.entries(profiles)) {
   check('second picture appears only after first is cleared',
     (await page.textContent('#hud-stage')) === 'Picture 2 / 2' &&
     (await z<boolean>(page, 'const s = z.state(); return s.cells.some(c => c >= 0) && s.under.every(c => c < 0)')));
+  check('the second picture slides in during the reveal pause',
+    (await z<number | null>(page, 'return z.view().reveal')) !== null);
+  await page.waitForFunction(() => (window as any).__jb?.view()?.reveal === null, null, { timeout: 2500 });
 
   // Propeller: arm it, tap a glowing jelly on the canvas, it takes off.
   await z(page, 'z.start(29)');
