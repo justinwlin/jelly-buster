@@ -25,6 +25,8 @@ export interface JellyLook {
   wave?: number;
   /** Red flash 0..1 (came back to full slots). */
   alarm?: number;
+  /** Open happy mouth (menus and the app icon). */
+  smile?: boolean;
 }
 
 const cache = new Map<string, { hi: string; lo: string; mid: string; deep: string; rim: string; ink: string }>();
@@ -249,6 +251,20 @@ export function drawJelly(ctx: CanvasRenderingContext2D, x: number, y: number, s
           ctx.stroke();
         }
       }
+    }
+    if (o.smile) {
+      const my = ey + h * 0.14;
+      ctx.fillStyle = '#5a1a2a';
+      ctx.beginPath();
+      ctx.moveTo(-w * 0.1, my);
+      ctx.quadraticCurveTo(0, my + h * 0.005, w * 0.1, my);
+      ctx.quadraticCurveTo(w * 0.09, my + h * 0.15, 0, my + h * 0.15);
+      ctx.quadraticCurveTo(-w * 0.09, my + h * 0.15, -w * 0.1, my);
+      ctx.fill();
+      ctx.fillStyle = '#ff7f9c';
+      ctx.beginPath();
+      ctx.ellipse(0, my + h * 0.11, w * 0.05, h * 0.03, 0, 0, Math.PI * 2);
+      ctx.fill();
     }
     // Blush.
     ctx.fillStyle = 'rgba(255,110,150,0.35)';

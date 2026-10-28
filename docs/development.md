@@ -43,7 +43,7 @@ The public URL is then `https://$RUNPOD_POD_ID-3002.proxy.runpod.net`.
 | `npm run shots -- http://localhost:3002/` | Screenshots of the main screens into `e2e-out/`. |
 | `npx tsx scripts/art-preview.ts critters` | Contact sheet of a picture pack, saved to `e2e-out/art-critters.png`. |
 | `npx tsx scripts/montage.ts out.png 4 300 a.png b.png …` | Combines screenshots into one image for quick review. |
-| `npm run icons` | Re-renders the PNG icons from `public/icons/icon.svg`. |
+| `npm run icons` | Re-renders the app icons with the game's own jelly renderer (`scripts/icons.ts`). |
 
 ## Adding pictures
 
