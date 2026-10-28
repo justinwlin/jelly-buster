@@ -1,6 +1,6 @@
 import type { JellyLook } from '../jelly';
 
-const W = 24, H = 24, INK = '#211d25';
+const W = 24, H = 24, INK = '#14241a';
 const sprites = new Map<string, HTMLCanvasElement>();
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
@@ -10,7 +10,7 @@ function tint(hex: string, mix: number): string {
   return `rgb(${c.map((v) => Math.round(mix >= 0 ? v + (255 - v) * mix : v * (1 + mix))).join(',')})`;
 }
 
-/** Squat, domed pixel body. Limbs, stem and face are drawn live so they can move. */
+/** Broad, rounded pixel body. Limbs, stem and face are drawn live so they can move. */
 function sprite(color: string): HTMLCanvasElement {
   const cached = sprites.get(color);
   if (cached) return cached;
@@ -18,17 +18,23 @@ function sprite(color: string): HTMLCanvasElement {
   c.width = W; c.height = H;
   const x = c.getContext('2d')!;
   const px = (a: number, b: number, w: number, h: number, fill: string) => { x.fillStyle = fill; x.fillRect(a, b, w, h); };
-  const dark = tint(color, -0.3), light = tint(color, 0.34);
-  // Rounded lower corners and fuller cheeks, following the saved reference.
-  px(9, 5, 6, 1, INK); px(7, 6, 10, 1, INK); px(6, 7, 12, 1, INK);
-  px(5, 8, 14, 1, INK); px(4, 9, 16, 1, INK); px(3, 10, 18, 7, INK);
+  const dark = tint(color, -0.54), shade = tint(color, -0.23);
+  const light = tint(color, 0.24), glint = tint(color, 0.46);
+  // A wide, almost square body with stepped shoulders and soft bottom corners.
+  px(8, 5, 8, 1, INK); px(6, 6, 12, 1, INK); px(5, 7, 14, 1, INK);
+  px(4, 8, 16, 1, INK); px(3, 9, 18, 8, INK);
   px(4, 17, 16, 1, INK); px(5, 18, 14, 1, INK); px(7, 19, 10, 1, INK);
-  px(9, 6, 6, 1, color); px(7, 7, 10, 1, color); px(6, 8, 12, 1, color);
-  px(5, 9, 14, 1, color); px(4, 10, 16, 7, color);
-  px(5, 17, 14, 1, dark); px(7, 18, 10, 1, dark);
-  px(8, 8, 8, 2, light); px(6, 10, 3, 1, light); px(16, 9, 2, 2, light);
-  px(8, 7, 2, 1, '#fff'); px(12, 8, 3, 1, '#fff');
-  px(6, 15, 1, 1, dark); px(17, 15, 1, 1, dark);
+  px(8, 6, 8, 1, dark); px(6, 7, 12, 1, dark); px(5, 8, 14, 1, dark);
+  px(4, 9, 16, 8, color); px(5, 17, 14, 1, shade); px(7, 18, 10, 1, dark);
+  // The recessed crown and its U-shaped bright rim are the defining detail.
+  px(8, 7, 8, 1, shade); px(7, 8, 10, 1, shade);
+  px(7, 9, 2, 2, glint); px(15, 9, 2, 2, glint);
+  px(8, 11, 8, 1, light); px(9, 8, 6, 1, dark);
+  px(9, 9, 6, 2, shade); px(10, 10, 4, 1, dark);
+  px(8, 8, 2, 1, glint); px(15, 8, 1, 1, glint);
+  px(5, 10, 1, 2, shade); px(18, 10, 1, 2, shade);
+  px(5, 15, 3, 2, light); px(16, 15, 3, 2, light);
+  px(6, 16, 2, 1, shade); px(16, 16, 2, 1, shade);
   sprites.set(color, c);
   return c;
 }
@@ -63,10 +69,10 @@ export function drawJunimo(ctx: CanvasRenderingContext2D, x: number, y: number, 
     px(side < 0 ? 2 : 21, 5 + arm, 1, 2, INK);
   }
   const step = Math.sin(t * 9) > 0.55 ? 1 : 0;
-  px(7, 19 + step, 3, 2, INK); px(14, 20 - step, 3, 1 + step, INK);
+  px(7, 19 + step, 3, 2, INK); px(14, 19 - step, 3, 2, INK);
   ctx.drawImage(sprite(base), 0, 0);
-  // A tiny colored tip and cross-shaped twig, like the reference's sprout.
-  px(11, 1, 2, 5, INK); px(9 + leaf, 3, 6, 1, INK);
+  // A slim stem with one tiny leaf; it stays readable at tray size.
+  px(11, 1, 2, 6, INK); px(9 + leaf, 3, 5, 1, INK);
   px(11, 0, 2, 1, tint(base, 0.2));
 
   if (o.ice && o.ice > 0) {
@@ -83,13 +89,13 @@ export function drawJunimo(ctx: CanvasRenderingContext2D, x: number, y: number, 
   if ((o.face ?? false) && !o.hidden) {
     const closed = o.blink || o.mood === 'sleep' || o.mood === 'happy';
     const glance = clamp(Math.round((o.look?.x ?? 0) * 0.8), -1, 1);
-    const eyeY = 11 + clamp(Math.round((o.look?.y ?? 0) * 0.6), -1, 1);
+    const eyeY = 13 + clamp(Math.round((o.look?.y ?? 0) * 0.6), -1, 1);
     if (closed) { px(8, eyeY + 1, 2, 1, INK); px(14, eyeY + 1, 2, 1, INK); }
-    else for (const ex of [8, 14]) { px(ex + glance, eyeY, 2, 2, INK); px(ex + glance, eyeY, 1, 1, '#fff'); }
-    px(6, 14, 2, 1, '#f5a1b3'); px(16, 14, 2, 1, '#f5a1b3');
-    if (o.mood === 'shout' || o.smile) { px(11, 14, 2, 2, '#71313d'); px(11, 15, 1, 1, '#ff9ab0'); }
-    else if (o.mood === 'worried') { px(11, 14, 2, 1, INK); px(7, 9, 2, 1, INK); px(15, 9, 2, 1, INK); }
-    else if (o.mood !== 'sleep') px(11, 14, 2, 1, INK);
+    else for (const ex of [8, 14]) px(ex + glance, eyeY, 2, 2, INK);
+    px(6, 16, 2, 1, '#f5a1b3'); px(16, 16, 2, 1, '#f5a1b3');
+    if (o.mood === 'shout' || o.smile) { px(11, 16, 2, 2, '#71313d'); px(11, 17, 1, 1, '#ff9ab0'); }
+    else if (o.mood === 'worried') { px(11, 16, 2, 1, INK); px(7, 12, 2, 1, INK); px(15, 12, 2, 1, INK); }
+    else if (o.mood !== 'sleep') px(11, 16, 2, 1, INK);
   }
 
   const label = o.hidden ? '?' : String(n);

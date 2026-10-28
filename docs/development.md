@@ -35,7 +35,7 @@ The public URL is then `https://$RUNPOD_POD_ID-3002.proxy.runpod.net`.
 | `scripts/` | Level builder, sim report, e2e, screenshots, icons and art previews. |
 | `tests/` | Vitest: rule tests, plus checks that every shipped level is valid and beatable. |
 
-Junimo art reference: [reference/junimo-green.png](reference/junimo-green.png). Keep its rounded body, raised twig arms, cross-shaped sprout and tiny feet when refining the pixel skin. Frozen Junimos use faceted frost around the body, leaving the face and hit count readable.
+Junimo art reference: [reference/junimo-green.png](reference/junimo-green.png). Compare it with the [Stardew Valley sprite sheet](https://www.spriters-resource.com/pc_computer/stardewvalley/asset/93155/) and the [Wiki animation](https://wiki.stardewvalley.net/Junimos) when refining this original renderer. The important cues are a broad rounded square body, dark recessed crown with a bright U-shaped rim, low simple eyes, small blush, raised twig arms, a slim stem, and tiny feet. Avoid large white shine patches or a tall bell silhouette. Frozen Junimos use faceted frost around the body, leaving the face and hit count readable.
 
 ## Commands
 
