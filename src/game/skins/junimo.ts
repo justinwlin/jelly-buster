@@ -91,11 +91,18 @@ export function drawJunimo(ctx: CanvasRenderingContext2D, x: number, y: number, 
     const glance = clamp(Math.round((o.look?.x ?? 0) * 0.8), -1, 1);
     const eyeY = 13 + clamp(Math.round((o.look?.y ?? 0) * 0.6), -1, 1);
     if (closed) { px(8, eyeY + 1, 2, 1, INK); px(14, eyeY + 1, 2, 1, INK); }
-    else for (const ex of [8, 14]) px(ex + glance, eyeY, 2, 2, INK);
+    else for (const ex of [8, 14]) {
+      px(ex + glance, eyeY, 2, 2, INK);
+      px(ex + glance, eyeY, 1, 1, '#fff9df');
+    }
     px(6, 16, 2, 1, '#f5a1b3'); px(16, 16, 2, 1, '#f5a1b3');
+    px(7, 17, 1, 1, '#f7c2c9'); px(16, 17, 1, 1, '#f7c2c9');
     if (o.mood === 'shout' || o.smile) { px(11, 16, 2, 2, '#71313d'); px(11, 17, 1, 1, '#ff9ab0'); }
     else if (o.mood === 'worried') { px(11, 16, 2, 1, INK); px(7, 12, 2, 1, INK); px(15, 12, 2, 1, INK); }
-    else if (o.mood !== 'sleep') px(11, 16, 2, 1, INK);
+    else if (o.mood !== 'sleep') {
+      const smile = tint(base, -0.5);
+      px(10, 16, 1, 1, smile); px(11, 17, 2, 1, smile); px(13, 16, 1, 1, smile);
+    }
   }
 
   const label = o.hidden ? '?' : String(n);
