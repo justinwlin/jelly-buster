@@ -271,8 +271,11 @@ export function onEvents(v: View, evs: SimEvent[]) {
         vis.pulse = 1;
         vis.shotAt = v.time;
       } else if (vis) {
-        // Belt jellies keep gliding: no squash or recoil, just the count ticking down.
-        vis.pulse = 0.5;
+        // A small kick makes a hit feel connected to its moving jelly.
+        vis.rx = ((from.x - to.x) / (d || 1)) * l.beltSize * 0.045;
+        vis.ry = ((from.y - to.y) / (d || 1)) * l.beltSize * 0.045;
+        vis.sqv = Math.min(6, vis.sqv + 2.4);
+        vis.pulse = 0.7;
         vis.shotAt = v.time;
       }
     } else if (e.k === 'reveal') {
@@ -415,6 +418,7 @@ export function update(v: View, dt: number) {
         const dur = chain ? 0.16 : t.place === 'fly' ? 0.5 : crane ? 0.65 : t.place === 'slot' ? 0.38 : 0.36;
         const lift = chain ? l.beltSize * 0.12 : t.place === 'fly' || crane ? Math.min(90, 30 + d * 0.25) : Math.min(l.beltSize * 1.1, 14 + d * 0.16);
         vis.hop = { fx: vis.x, fy: vis.y, t: leaving ? -HOP_CROUCH : 0, dur, lift, crouch: leaving ? 0.3 : 0 };
+        if (leaving) dust(v, vis.x, vis.y + (vis.place === 'slot' ? l.slotSize : l.qSize) * 0.35);
       }
       vis.place = t.place;
     } else if (t.place === 'slot' && !vis.hop && t.x < vis.x - l.slotSize * 0.3) {
@@ -473,18 +477,18 @@ export function update(v: View, dt: number) {
       v.ghosts.delete(s.cell);
       v.picDirty = true;
       v.flashes.push({ cell: s.cell, color: s.color, t: 0 });
-      const n = 3 + ((Math.random() * 3) | 0);
+      const n = 2 + ((Math.random() * 2) | 0);
       for (let i = 0; i < n; i++) {
         const a = Math.random() * Math.PI * 2;
-        const sp = 70 + Math.random() * 130;
-        spawn(v, { x: s.to.x, y: s.to.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 120, life: 0.5 + Math.random() * 0.3, size: l.cs * (0.32 + Math.random() * 0.25), color: s.color, rot: Math.random() * 6, vr: (Math.random() - 0.5) * 18, kind: 'cube', g: 900 });
+        const sp = 55 + Math.random() * 75;
+        spawn(v, { x: s.to.x, y: s.to.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 65, life: 0.38 + Math.random() * 0.18, size: l.cs * (0.18 + Math.random() * 0.14), color: s.color, rot: Math.random() * 6, vr: (Math.random() - 0.5) * 10, kind: 'cube', g: 550 });
       }
-      spawn(v, { x: s.to.x, y: s.to.y, life: 0.18, size: l.cs * 1.3, color: '#fff', kind: 'spark', g: 0 });
+      spawn(v, { x: s.to.x, y: s.to.y, life: 0.18, size: l.cs * 0.8, color: '#fff', kind: 'spark', g: 0 });
     }
   }
   v.shots = v.shots.filter((s) => s.t < s.dur);
   for (const f of v.flashes) f.t += dt;
-  v.flashes = v.flashes.filter((f) => f.t < 0.16);
+  v.flashes = v.flashes.filter((f) => f.t < 0.24);
   for (const p of v.finishing) p.t += dt;
   v.finishing = v.finishing.filter((p) => p.t < 0.55);
   for (const m of v.merging) {
@@ -863,7 +867,7 @@ export function draw(ctx: CanvasRenderingContext2D, v: View) {
   ctx.setTransform(dpr, 0, 0, dpr, qx * dpr, qy * dpr);
 
   drawTreads(ctx, v);
-  // The picture: baked cubes, a white flash on cubes that just popped.
+  // The picture: baked cubes, then a brief colored lift where each cube cleared.
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, (l.px + qx) * dpr, (l.py + qy) * dpr);
   if (v.reveal !== null) {
@@ -876,14 +880,24 @@ export function draw(ctx: CanvasRenderingContext2D, v: View) {
   ctx.restore();
   if (v.reveal !== null) drawRevealGlint(ctx, v);
   for (const f of v.flashes) {
-    const u = f.t / 0.16;
+    const u = Math.min(1, f.t / 0.24);
+    const ease = 1 - Math.pow(1 - u, 3);
     const p = cellPt(l, f.cell, st.lvl.w);
-    const s = l.cs * (1 + u * 0.6);
+    const s = l.cs * (1 - ease * 0.55);
+    const y = p.y - ease * l.cs * 0.28;
+    ctx.save();
     ctx.globalAlpha = 1 - u;
-    ctx.fillStyle = '#fff';
-    rr(ctx, p.x - s / 2, p.y - s / 2, s, s, s * 0.2);
+    ctx.fillStyle = f.color;
+    rr(ctx, p.x - s / 2, y - s / 2, s, s, s * 0.22);
     ctx.fill();
-    ctx.globalAlpha = 1;
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+    ctx.lineWidth = Math.max(1, l.cs * 0.07 * (1 - u));
+    ctx.stroke();
+    const ripple = l.cs * (0.55 + ease * 0.65);
+    ctx.globalAlpha = (1 - u) * 0.5;
+    rr(ctx, p.x - ripple / 2, p.y - ripple / 2, ripple, ripple, ripple * 0.25);
+    ctx.stroke();
+    ctx.restore();
   }
   if (v.won !== null) drawShine(ctx, v);
 
@@ -1036,6 +1050,16 @@ function drawShots(ctx: CanvasRenderingContext2D, v: View) {
   const r = Math.max(3, v.l.cs * 0.48);
   for (const s of v.shots) {
     const u = s.t / s.dur;
+    if (u < 0.4) {
+      ctx.save();
+      ctx.globalAlpha = (1 - u / 0.4) * 0.7;
+      ctx.strokeStyle = '#fff7d3';
+      ctx.lineWidth = Math.max(1, r * 0.3);
+      ctx.beginPath();
+      ctx.arc(s.from.x, s.from.y, r * (0.65 + u * 1.6), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
     for (let i = 4; i >= 0; i--) {
       const k = Math.max(0, u - i * 0.07);
       const x = s.from.x + (s.to.x - s.from.x) * k;
