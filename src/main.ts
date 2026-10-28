@@ -8,7 +8,8 @@ import { newFeature, type Feature } from './sim/levels';
 import { PACKS } from './sim/pictures';
 import { exposed } from './sim/track';
 import campaignData from './levels/campaign.json';
-import { buzz, setMusic, setSound, sfx, unlockAudio } from './game/audio';
+import { setMusic, setSound, sfx, unlockAudio } from './game/audio';
+import { Haptics } from './game/haptics';
 import { COL_KEYS, confetti, draw, drawJelly, hitTest, newView, onEvents, popup, reject, relayout, SLOT_KEYS, update, type View } from './game/render';
 import { load, store, type Save } from './game/save';
 import { drawBoosterIcon } from './game/boosterArt';
@@ -37,6 +38,10 @@ const aimEl = $('aimhint');
 const BAR_H = 78;
 
 let save: Save = load();
+const haptics = new Haptics();
+haptics.enabled = save.settings.haptics;
+const tapzone = $('tapzone');
+tapzone.classList.toggle('hidden', !haptics.iosTap || !haptics.enabled);
 setSound(save.settings.sound);
 setMusic(save.settings.music);
 let mode: 'title' | 'play' | 'paused' | 'over' = 'title';
@@ -219,8 +224,10 @@ function toggleHandlers(rerender: () => void) {
     },
     haptics: () => {
       save.settings.haptics = !save.settings.haptics;
+      haptics.enabled = save.settings.haptics;
+      tapzone.classList.toggle('hidden', !haptics.iosTap || !haptics.enabled);
       store(save);
-      if (save.settings.haptics) buzz(true, 20);
+      if (haptics.enabled) haptics.pulse(20);
       rerender();
     },
   };
@@ -544,7 +551,7 @@ function tapBooster(id: BoosterId) {
   const el = barButtons.get(id)!.el;
   if (status === 'idle' || status === 'poor') {
     sfx.deny();
-    buzz(save.settings.haptics, 25);
+    haptics.pulse(25);
     toast(status === 'idle' ? def.unusable : `${def.name} costs ${def.price} coins`);
     el.classList.remove('nope');
     void el.offsetWidth;
@@ -613,7 +620,7 @@ function applyBooster(id: BoosterId, target: number) {
   if (!st || !useBooster(st, id, target)) return;
   spendBooster(save, id);
   store(save);
-  buzz(save.settings.haptics, [15, 30, 15]);
+  haptics.pulse([15, 30, 15]);
 }
 
 /** The crane's view: every jelly in the queue, scrollable, with the ones it can grab lit up. */
@@ -674,7 +681,7 @@ function tryLaunch(id: number) {
   const res = launchGroup(st, id);
   if (!res.group) {
     sfx.deny();
-    buzz(save.settings.haptics, 25);
+    haptics.pulse(25);
     if (res.why === 'belt') {
       view.beltFlash = 0.6;
       reject(view, id);
@@ -693,7 +700,7 @@ function tryLaunch(id: number) {
     return;
   }
   launch(st, id);
-  buzz(save.settings.haptics, 12);
+  haptics.pulse(12);
   if (tutorial === 'tap') {
     tutorial = 'slot';
     hideTip();
@@ -716,11 +723,13 @@ function pick(id: number | null) {
   if (id !== null) tryLaunch(id);
 }
 
-canvas.addEventListener('pointerdown', (e) => {
+function boardPointerDown(e: PointerEvent) {
   unlockAudio();
   if (!view || mode !== 'play') return;
   pick(hitTest(view, e.clientX, e.clientY));
-});
+}
+canvas.addEventListener('pointerdown', boardPointerDown);
+tapzone.addEventListener('pointerdown', boardPointerDown);
 
 /** Desktop gets key hints from the start; anyone else once they press a jelly key. */
 const desktop = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
@@ -757,12 +766,12 @@ function handleEvents() {
       if (c && chain.n >= c.at) {
         popup(view, c.text, c.color, chain.level >= 3 ? 0.9 : 1);
         sfx.combo(chain.level);
-        buzz(save.settings.haptics, 15);
+        haptics.pulse(15);
         chain.level++;
       }
     } else if (e.k === 'done') {
       sfx.done();
-      buzz(save.settings.haptics, 18);
+      haptics.pulse(18);
     } else if (e.k === 'launch') sfx.launch();
     else if (e.k === 'loop') sfx.enter();
     else if (e.k === 'lift') sfx.lift();
@@ -776,7 +785,7 @@ function handleEvents() {
       if (used === st.slots.length - 1) {
         sfx.warn();
         toast('Only one slot left!');
-        buzz(save.settings.haptics, [30, 40, 30]);
+        haptics.pulse([30, 40, 30]);
       }
       if (tutorial === 'slot') {
         showTip('It came back with hits left. <span class="hl">Tap it</span> to send it again!');
@@ -839,7 +848,7 @@ function won() {
   if (levelIndex + 1 > save.unlocked) save.unlocked = Math.min(LEVELS.length, levelIndex + 1);
   if (levelIndex === 0) seen('tutorial');
   store(save);
-  buzz(save.settings.haptics, [20, 40, 20, 40, 60]);
+  haptics.pulse([20, 40, 20, 40, 60]);
   setTimeout(() => {
     if (!view) return;
     sfx.win();
@@ -889,7 +898,7 @@ function lost(reason: 'full' | 'stuck') {
   hideTip();
   disarm();
   sfx.lose();
-  buzz(save.settings.haptics, [60, 60, 60]);
+  haptics.pulse([60, 60, 60]);
   // The life goes now (so closing the app doesn't dodge it); continuing gives it back.
   const costsLife = livesApply(levelIndex);
   loseLife(save, levelIndex, Date.now());

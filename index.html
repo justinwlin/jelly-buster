@@ -32,6 +32,8 @@
   </head>
   <body>
     <canvas id="game" aria-label="Game board"></canvas>
+    <!-- A real tap on this switch gives iPhone players a haptic tick. -->
+    <label id="tapzone" class="tapzone hidden" aria-hidden="true"><input type="checkbox" switch tabindex="-1" /></label>
     <div id="hud" class="hidden">
       <div class="coins"><i class="coin" id="hud-coin-icon"></i><b id="hud-coins">0</b></div>
       <div class="lvl-wrap">

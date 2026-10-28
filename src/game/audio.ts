@@ -243,9 +243,6 @@ export const sfx = {
   },
 };
 
-export function buzz(on: boolean, ms: number | number[]) {
-  if (on && 'vibrate' in navigator) navigator.vibrate(ms);
-}
 
 // ---------------------------------------------------------------- music
 
