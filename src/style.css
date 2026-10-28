@@ -107,7 +107,7 @@ button { font-family: var(--font); }
 
 /* ---------------------------------------------------------------- levels */
 .panel.levels { padding-top: 32px; }
-.packs { text-align: left; max-height: min(64dvh, 560px); overflow-y: auto; margin: 0 -8px; padding: 0 8px 4px; touch-action: pan-y; }
+.packs { text-align: left; max-height: min(64dvh / var(--ui), 560px); /* inside a zoomed screen: viewport units / --ui */ overflow-y: auto; margin: 0 -8px; padding: 0 8px 4px; touch-action: pan-y; }
 .pack h3 { margin: 12px 2px 8px; font-size: 19px; display: flex; justify-content: space-between; align-items: baseline; }
 .pack h3 em { font-style: normal; font-size: 14px; color: #c99a2e; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 9px; }
@@ -221,7 +221,7 @@ button { font-family: var(--font); }
 .intro-row b { display: block; font-size: 18px; color: #2f6fe0; }
 .intro-row small { display: block; font-size: 14px; line-height: 1.25; color: #8a5a3a; }
 .crane-panel { padding-bottom: 14px; }
-.cscroll { max-height: min(56dvh, 520px); overflow-y: auto; touch-action: pan-y; margin: 0 -10px; padding: 6px 10px 10px; border-radius: 18px;
+.cscroll { max-height: min(56dvh / var(--ui), 520px); overflow-y: auto; touch-action: pan-y; margin: 0 -10px; padding: 6px 10px 10px; border-radius: 18px;
   background: linear-gradient(#ece7ff, #ddd5ff); box-shadow: inset 0 3px 8px rgba(60,40,140,0.2); }
 .ccols { display: flex; justify-content: center; gap: 6px; }
 .ccol { display: flex; flex-direction: column; gap: 4px; min-width: 58px; }
@@ -272,8 +272,8 @@ button { font-family: var(--font); }
   .meter { height: 22px; }
   .big-heart, .big-heart .heart { width: 72px; height: 66px; }
   .shop-icon canvas { width: 72px !important; height: 72px !important; }
-  .cscroll { max-height: calc(100dvh - 230px); }
-  .packs { max-height: calc(100dvh - 170px); }
+  .cscroll { max-height: calc(100dvh / var(--ui) - 230px); }
+  .packs { max-height: calc(100dvh / var(--ui) - 170px); }
 }
 
 /* Landscape phones: the title splits into two columns, panels drop their pictures. */
@@ -299,7 +299,14 @@ button { font-family: var(--font); }
   .intro-row { flex-direction: column; text-align: center; padding: 4px 6px 6px; flex: 1; }
   .intro-row small { font-size: 12px; }
   .big-heart, .big-heart .heart { width: 52px; height: 48px; }
-  .cscroll { max-height: calc(100dvh - 170px); }
-  .packs { max-height: calc(100dvh - 150px); }
+  .cscroll { max-height: calc(100dvh / var(--ui) - 170px); }
+  .packs { max-height: calc(100dvh / var(--ui) - 150px); }
   .panel.levels { width: min(700px, 100%); }
 }
+
+/* ---------------------------------------------------------------- big screens
+   --ui (set from the window size in main.ts) is 1 on phones and up to 1.8 on a large
+   desktop window. The canvas layout scales slots and the queue by the same factor. */
+:root { --ui: 1; }
+#hud, .screen, .boost, .tip, .toast, .ff, .aimhint { zoom: var(--ui); }
+.boosters { gap: calc(14px * var(--ui)); }

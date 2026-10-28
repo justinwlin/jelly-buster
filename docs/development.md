@@ -41,7 +41,7 @@ The public URL is then `https://$RUNPOD_POD_ID-3002.proxy.runpod.net`.
 | `npm run levels` | Rebuilds `src/levels/campaign.json` from the picture packs and checks every level with the bots. Takes a few minutes. Add `-- --only=critters` to preview one pack without writing the file. |
 | `npm run sim -- 5` | Replays the shipped levels with every bot (5 seeds each) and prints win rates. |
 | `npm run e2e -- http://localhost:3002/` | Browser checks on phone, small phone, landscape, tablet and desktop. Start a dev server first. |
-| `npm run layout -- http://localhost:3003/` | Opens every menu and three levels on seven screen sizes (down to a 320×568 phone and a landscape phone). It fails if a menu spills sideways or needs scrolling, or if HUD pieces overlap, the level title wraps, or the booster bar leaves the screen or covers the queue. Screenshots go to `e2e-out/layout/`. Run it after any UI change. |
+| `npm run layout -- http://localhost:3003/` | Opens every menu and three levels on eight screen sizes (from a 320×568 phone and a landscape phone up to a 1920×1080 desktop). It fails if a menu spills sideways or needs scrolling, or if HUD pieces overlap, the level title wraps, or the booster bar leaves the screen or covers the queue. Screenshots go to `e2e-out/layout/`. Run it after any UI change. |
 | `npm run shots -- http://localhost:3002/` | Screenshots of the main screens into `e2e-out/`. |
 | `npx tsx scripts/shots-boosters.ts` | Screenshots of the boosters and lives screens into `e2e-out/boost-*.png`. |
 | `npx tsx scripts/art-preview.ts critters` | Contact sheet of a picture pack, saved to `e2e-out/art-critters.png`. |
@@ -118,6 +118,8 @@ Booster rules that keep things fair:
 `tests/levels.test.ts` re-checks the margin rules on every `npm test`, and spot-replays a few levels.
 
 ## Workflow
+
+On big screens the UI scales up: `uiScale()` in `src/game/layout.ts` is 1 on phones and up to 1.8 on a large desktop window. The canvas uses it for slot and queue sizes, and the HTML UI is zoomed by the same factor through the `--ui` CSS variable. Viewport units inside a zoomed screen need dividing by `var(--ui)`.
 
 The home screen shows the version from `package.json`, the commit and the build time (`v0.2.0 · 49c0fb6 · Oct 28, 2:04 PM`), so you can tell which build a phone is running. Bump `version` in `package.json` for a notable release.
 

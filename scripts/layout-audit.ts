@@ -17,6 +17,7 @@ const PROFILES: Record<string, BrowserContextOptions> = {
   tinyPhone: { viewport: { width: 320, height: 568 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true },
   phoneLandscape: { viewport: { width: 844, height: 390 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true },
   tablet: { viewport: { width: 820, height: 1180 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true },
+  fullHd: { viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1 },
   desktop: { viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 },
   laptop: { viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1 },
 };
@@ -55,7 +56,8 @@ async function inGame(page: Page, profile: string, screen: string) {
     for (const [s, r] of hud) if (!onScreen(r)) return `${s} off screen`;
     for (let i = 0; i < hud.length; i++) for (let j = i + 1; j < hud.length; j++) if (hits(hud[i][1], hud[j][1])) return `${hud[i][0]} overlaps ${hud[j][0]}`;
     const level = box(document.querySelector('#hud-level')!);
-    if (level.height > 40) return 'level title wraps';
+    const ui = Number(getComputedStyle(document.documentElement).getPropertyValue('--ui')) || 1;
+    if (level.height > 40 * ui) return 'level title wraps';
     const boosts = [...document.querySelectorAll('#boosters:not(.hidden) .boost')].map(box);
     for (const r of boosts) if (!onScreen(r)) return 'booster button off screen';
     const l = (window as any).__jb.view().l;

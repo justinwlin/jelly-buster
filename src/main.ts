@@ -12,6 +12,7 @@ import { buzz, setMusic, setSound, sfx, unlockAudio } from './game/audio';
 import { confetti, draw, drawJelly, hitTest, newView, onEvents, popup, relayout, update, type View } from './game/render';
 import { load, store, type Save } from './game/save';
 import { drawBoosterIcon } from './game/boosterArt';
+import { uiScale } from './game/layout';
 import {
   boostersOpen, boosterStatus, buyBooster, buyLife, canBuyLife, canPlay, clock, giftBoosters, LIVES, livesApply, loseLife, nextLifeIn, owned,
   refundLife, REVIVE_COST, reward, spendBooster, syncLives,
@@ -70,8 +71,13 @@ function safeInsets() {
   return { top: r.top, bottom: window.innerHeight - r.bottom };
 }
 
+/** Big-screen UI scale (see uiScale in layout.ts); the HTML UI is zoomed by it via --ui. */
+let ui = 1;
+
 function resize() {
   const { W, H, dpr } = viewport();
+  ui = uiScale(W, H);
+  document.documentElement.style.setProperty('--ui', String(ui));
   canvas.width = Math.round(W * dpr);
   canvas.height = Math.round(H * dpr);
   if (view) relayout(view, W, H, dpr, barH());
@@ -308,7 +314,8 @@ function showTip(html: string, where: 'top' | 'middle' = 'middle') {
   void tipEl.offsetWidth;
   tipEl.style.animation = '';
   const l = view?.l;
-  tipEl.style.top = where === 'top' || !l ? 'calc(88px + env(safe-area-inset-top))' : `${Math.max(88, l.frame.y + l.frame.h * 0.42)}px`;
+  // The tip is zoomed by --ui, so its top is in zoomed pixels.
+  tipEl.style.top = where === 'top' || !l ? 'calc(88px + env(safe-area-inset-top))' : `${Math.max(88, (l.frame.y + l.frame.h * 0.42) / ui)}px`;
   const face = tipEl.querySelector('canvas')!;
   const x = face.getContext('2d')!;
   x.clearRect(0, 0, 120, 120);
@@ -477,7 +484,7 @@ function resume() {
 
 // ---------------------------------------------------------------- boosters
 
-const barH = () => (boostersOpen(save) ? BAR_H : 0);
+const barH = () => (boostersOpen(save) ? Math.round(BAR_H * ui) : 0);
 
 /** The bar's buttons, built once from the registry. */
 const barButtons = new Map<BoosterId, { el: HTMLButtonElement; ctx: CanvasRenderingContext2D }>();
@@ -600,7 +607,7 @@ function arm(id: BoosterId) {
   aim = id;
   view.aim = new Set(targets);
   aimEl.textContent = def.hint;
-  aimEl.style.top = `${view.l.bar.y - 44}px`;
+  aimEl.style.top = `${(view.l.bar.y - 44 * ui) / ui}px`;
   aimEl.classList.remove('hidden');
 }
 

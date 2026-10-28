@@ -45,14 +45,23 @@ export interface Layout {
 
 const TOP_BAR = 78;
 
+/**
+ * UI scale for big screens: 1 on phones, up to 1.8 on a large desktop window. The HTML UI
+ * is zoomed by the same factor (the --ui CSS variable), so the canvas keeps room for it.
+ */
+export function uiScale(W: number, H: number) {
+  return Math.round(Math.max(1, Math.min(1.8, W / 640, H / 680)) * 20) / 20;
+}
+
 export function computeLayout(W: number, H: number, gw: number, gh: number, nSlots: number, nCols: number, safeTop = 0, safeBottom = 0, barH = 0): Layout {
+  const ui = uiScale(W, H);
   const landscape = W > H * 1.15;
   // Board size in cube units: picture + belt on both sides.
   const gapU = 2.3;
   const laneU = 4.4;
   const bw = gw + 2 * (gapU + laneU / 2 + 0.4);
   const bh = gh + 2 * (gapU + laneU / 2 + 0.4);
-  const top = TOP_BAR + safeTop;
+  const top = TOP_BAR * ui + safeTop;
   let cs: number;
   let boardX: number;
   let boardY: number;
@@ -82,14 +91,14 @@ export function computeLayout(W: number, H: number, gw: number, gh: number, nSlo
   const outer = gap + lane / 2;
   const frame = { x: px - outer, y: py - outer, w: gw * cs + 2 * outer, h: gh * cs + 2 * outer, r: lane * 1.1 };
 
-  const slotSize = Math.min(64, (panel.w - 16) / (nSlots + 0.8), panel.h * 0.2);
+  const slotSize = Math.min(64 * ui, (panel.w - 16) / (nSlots + 0.8), panel.h * 0.2);
   const slotY = panel.y + slotSize * 0.65 + 12;
   const slotGap = Math.min(slotSize * 0.25, (panel.w - slotSize * nSlots) / Math.max(1, nSlots + 1));
   const slotsW = nSlots * slotSize + (nSlots - 1) * slotGap;
   const slots = Array.from({ length: nSlots }, (_, i) => ({ x: panel.x + (panel.w - slotsW) / 2 + slotSize / 2 + i * (slotSize + slotGap), y: slotY }));
 
   const qTop = slotY + slotSize * 0.75;
-  const qSize = Math.min(86, slotSize * 1.3, (panel.w - 20) / (nCols * 1.22), (panel.y + panel.h - slotY - slotSize) / 2.4);
+  const qSize = Math.min(86 * ui, slotSize * 1.3, (panel.w - 20) / (nCols * 1.22), (panel.y + panel.h - slotY - slotSize) / 2.4);
   const qPitch = qSize * 1.05;
   const qx = Array.from({ length: nCols }, (_, i) => panel.x + panel.w / 2 + (i - (nCols - 1) / 2) * qSize * 1.18);
   const qy = qTop + qSize * 0.62;
