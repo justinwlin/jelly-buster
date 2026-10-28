@@ -61,6 +61,8 @@ export interface Runner {
   p: number;
   /** Station index of the last shot (-99 if none yet). */
   last: number;
+  /** Cubes hit since this jelly last passed the launcher. */
+  lapHits: number;
 }
 
 export type SimEvent =
@@ -69,6 +71,8 @@ export type SimEvent =
   | { k: 'shot'; id: number; cell: number; color: number; s: number }
   | { k: 'done'; id: number; s: number }
   | { k: 'park'; id: number; slot: number }
+  /** Queue is empty, so a jelly with hits left goes round again instead of parking. */
+  | { k: 'loop'; id: number }
   | { k: 'thaw'; id: number }
   | { k: 'win' }
   | { k: 'lose'; reason: 'full' | 'stuck' };
@@ -92,6 +96,8 @@ export interface State {
   /** Most slots in use at any one time. */
   peak: number;
   shots: number;
+  /** Tick of the most recent shot. */
+  lastShot: number;
   events: SimEvent[];
   /** Headless runs turn this off so the event list doesn't grow. */
   log: boolean;
@@ -117,6 +123,7 @@ export function newState(lvl: Level): State {
     revives: 0,
     peak: 0,
     shots: 0,
+    lastShot: 0,
     events: [],
     log: true,
   };
@@ -129,7 +136,7 @@ export function cloneState(st: State): State {
     cells: st.cells.slice(),
     cols: st.cols.map((c) => c.map(cj)),
     slots: st.slots.map((j) => (j ? cj(j) : null)),
-    belt: st.belt.map((r) => ({ j: cj(r.j), p: r.p, last: r.last })),
+    belt: st.belt.map((r) => ({ j: cj(r.j), p: r.p, last: r.last, lapHits: r.lapHits })),
     pending: st.pending.map(cj),
     held: st.held ? cj(st.held) : null,
     events: [],
@@ -248,9 +255,17 @@ export function step(st: State) {
   const { w, h } = st.lvl;
   const L = trackLength(w, h);
 
+  // Nothing left in the queue: there's no choice to make, so slot jellies go back out on
+  // their own whenever the belt has room.
+  const queueEmpty = st.cols.every((c) => !c.length);
+  if (queueEmpty && st.belt.length + st.pending.length < st.lvl.belt) {
+    const j = st.slots.find((x) => x);
+    if (j) launch(st, j.id);
+  }
+
   if (st.pending.length && !st.belt.some((r) => r.p < spacing * sub)) {
     const j = st.pending.shift()!;
-    st.belt.push({ j, p: 0, last: -99 });
+    st.belt.push({ j, p: 0, last: -99, lapHits: 0 });
     emit(st, { k: 'enter', id: j.id });
   }
 
@@ -259,6 +274,15 @@ export function step(st: State) {
     if (r.p % sub) continue;
     const s = r.p / sub;
     if (s >= L) {
+      // With the queue empty, keep going round. Only a jelly that hit nothing all lap
+      // steps aside, and only when another is waiting in a slot for belt room.
+      if (queueEmpty && !(r.lapHits === 0 && st.slots.some((x) => x))) {
+        r.p = 0;
+        r.last = -99;
+        r.lapHits = 0;
+        emit(st, { k: 'loop', id: r.j.id });
+        continue;
+      }
       st.belt.splice(st.belt.indexOf(r), 1);
       const free = st.slots.indexOf(null);
       if (free < 0) {
@@ -281,7 +305,9 @@ export function step(st: State) {
     st.cells[i] = -1;
     st.left--;
     st.shots++;
+    st.lastShot = st.tick;
     r.last = s;
+    r.lapHits++;
     r.j.n--;
     emit(st, { k: 'shot', id: r.j.id, cell: i, color: r.j.color, s });
     if (r.j.n <= 0) {
@@ -295,7 +321,9 @@ export function step(st: State) {
     emit(st, { k: 'win' });
     return;
   }
-  if (!st.belt.length && !st.pending.length && (!anyMove(st) || deadlocked(st))) {
+  // Looping jellies that go two full laps without a single hit will never hit again.
+  const dry = queueEmpty && st.tick - st.lastShot > 2 * (L + spacing * st.lvl.belt) * sub;
+  if (dry || (!st.belt.length && !st.pending.length && (!anyMove(st) || deadlocked(st)))) {
     st.status = 'lost';
     st.reason = 'stuck';
     emit(st, { k: 'lose', reason: 'stuck' });

@@ -372,7 +372,6 @@ function tryLaunch(id: number) {
     return;
   }
   launch(st, id);
-  sfx.launch();
   buzz(save.settings.haptics, 12);
   if (tutorial === 'tap') {
     tutorial = 'slot';
@@ -414,7 +413,9 @@ function handleEvents() {
     } else if (e.k === 'done') {
       sfx.done();
       buzz(save.settings.haptics, 18);
-    } else if (e.k === 'thaw') sfx.thaw();
+    } else if (e.k === 'launch') sfx.launch();
+    else if (e.k === 'loop') sfx.enter();
+    else if (e.k === 'thaw') sfx.thaw();
     else if (e.k === 'enter') sfx.enter();
     else if (e.k === 'park') {
       sfx.park();

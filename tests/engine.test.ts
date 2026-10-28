@@ -65,6 +65,33 @@ describe('engine', () => {
     expect(st.cells[1]).toBe(-1);
   });
 
+  // A red cube walled in by blue: red can't hit it until blue has cleared the ring.
+  const walled = ['111', '101', '111'];
+
+  it('with the queue empty, a jelly with hits left keeps going round instead of parking', () => {
+    const lvl = level(walled, [[{ id: 1, color: 0, n: 1 }], [{ id: 2, color: 1, n: 8 }]]);
+    const st = newState(lvl);
+    launch(st, 1);
+    launch(st, 2);
+    run(st, lap(lvl) * 4);
+    expect(st.status).toBe('won');
+    expect(st.events.some((e) => e.k === 'park')).toBe(false);
+    expect(st.events.some((e) => e.k === 'loop' && e.id === 1)).toBe(true);
+  });
+
+  it('auto-sends slot jellies once the queue is empty', () => {
+    const lvl = level(walled, [[{ id: 1, color: 0, n: 1 }, { id: 2, color: 1, n: 8 }]]);
+    const st = newState(lvl);
+    launch(st, 1);
+    run(st, lap(lvl));
+    // Blue was still in the queue, so red parked.
+    expect(st.slots[0]?.id).toBe(1);
+    launch(st, 2);
+    run(st, lap(lvl) * 4);
+    expect(st.status).toBe('won');
+    expect(st.slots.every((j) => j === null)).toBe(true);
+  });
+
   it('a jelly with hits left comes back and parks in a slot', () => {
     const lvl = level(['0'], [[{ id: 1, color: 0, n: 1 }], [{ id: 2, color: 1, n: 3 }]]);
     const st = newState(lvl);
@@ -132,7 +159,7 @@ describe('engine', () => {
     const lvl = level(['0'], [[{ id: 1, color: 1, n: 1 }]]);
     const st = newState(lvl);
     launch(st, 1);
-    run(st, lap(lvl));
+    run(st, lap(lvl) * 4);
     expect(st.status).toBe('lost');
     expect(st.reason).toBe('stuck');
   });

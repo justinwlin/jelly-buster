@@ -7,6 +7,7 @@ A puzzle game about sending jellies around a conveyor belt so they munch every c
 - The picture sits in the middle with a belt looping around it. Tap a jelly at the front of a column to send it onto the belt.
 - As it rides around, it shoots the first cube in each row or column it passes, **if that cube is its color**. Each shot uses one of its hits (the number on it).
 - A jelly that runs out of hits pops. One that gets back to the launcher with hits left waits in one of your **5 slots**, and you can send it again later.
+- Once the queue is empty there's nothing left to decide: jellies with hits left keep going round, and waiting ones go back out on their own.
 - **If a jelly comes back and every slot is full, you lose.** You can spend coins for one more slot and keep going.
 - Up to 5 jellies can be on the belt at once (the `5/5` counter by the launcher).
 - Clear every cube to finish the picture. Using fewer slots earns more stars.

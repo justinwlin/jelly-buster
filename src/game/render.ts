@@ -236,6 +236,12 @@ export function onEvents(v: View, evs: SimEvent[]) {
         vis.sqv -= 8;
         vis.wave = 1;
       }
+    } else if (e.k === 'loop') {
+      // Going round again: a little hop of joy.
+      if (vis) {
+        vis.sqv -= 7;
+        vis.shotAt = v.time;
+      }
     } else if (e.k === 'enter') {
       v.launcherPulse = 1;
       if (vis) vis.sqv -= 6;
