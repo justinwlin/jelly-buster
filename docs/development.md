@@ -71,7 +71,7 @@ To add a new pack, create the file and list it in `src/sim/pictures/index.ts`.
    - `need`: the fewest slots the lookahead bot needs to win.
    - `human`: wins out of 3 for a bot that reacts slower and sometimes picks a worse jelly.
    - `spam`: wins out of 8 for the queue-spamming bot.
-6. **Accept or retry.** The builder tries, gentlest first: the base deal, then more and smaller jellies, then *reload 2*, where a jelly skips a station after each shot, so it hits less per lap and comes back more often. It ships the first deal that is both of these:
+6. **Accept or retry.** The builder tries, gentlest first: the base deal, then more and smaller jellies, then bigger jellies (they need more than one lap, so they come back to a slot more often). It ships the first deal that is both of these:
    - **Beatable with margin:** `need` ≤ 3 of 5 slots for the first 12 levels, ≤ 4 after that, and the human-like bot wins at least 2 of 3.
    - **Interesting:** spam wins no more often than the level's target. The target is 8/8 (no requirement) for the first 6 levels, then 6, 5, 4, and 3 in the encore (`spamCap` in `src/sim/levels.ts`).
 
@@ -83,7 +83,7 @@ To add a new pack, create the file and list it in `src/sim/pictures/index.ts`.
 - **Big flat two-color pictures are always easy.** Every jelly is useful almost all the time, so they work as breathers and early levels.
 - **Inner details make a picture punishing.** Eyes, seeds, windows and other inner colors, split into small jellies and dealt early, punish careless taps. They fill slots while a careful player sends the jelly whose color is showing.
 - **Crossed ropes deadlock.** If A is tied to a jelly below B's front and B to one below A's, nobody can win. The builder rejects any rope layout the queue can't untangle (`untangles()`).
-- **Spamming only loses when jellies come back.** The spam bot's slots rarely got past 2 of 5, because most jellies found enough cubes in one lap and popped. What makes spamming fail is jellies that return: fewer hits per lap (reload), queue fronts whose colors aren't ready yet, and enough jellies that 5 belt places plus 5 slots can't hold them all.
+- **Spamming only loses when jellies come back.** The spam bot's slots rarely got past 2 of 5, because most jellies found enough cubes in one lap and popped. What makes spamming fail is jellies that return: queue fronts whose colors aren't ready yet, jellies too big to finish in one lap, and enough jellies that 5 belt places plus 5 slots can't hold them all.
 - **Small, open pictures stay easy.** Pictures with few jellies (around 11–13) and colors showing everywhere (Bee, Gem) can't be made spam-proof without bullying. They stay as breathers.
 - **Ice can deadlock too.** Ice is capped at the number of jellies dealt ahead of it. Re-sending slot jellies also melts ice, so a frozen front with jellies in slots isn't treated as stuck.
 
@@ -94,3 +94,7 @@ To add a new pack, create the file and list it in `src/sim/pictures/index.ts`.
 - Work on a `justin/<name>` branch. Run `npm test`, `npm run build`, and `npm run e2e` against a dev server, then look at `npm run shots` output.
 - Pushing to `main` deploys to GitHub Pages via `.github/workflows/deploy.yml`.
 - When you change the rules or the generator in a way that changes levels, bump `GEN_VERSION` in `src/sim/levels.ts` and run `npm run levels`.
+
+### Rules stay fixed
+
+Difficulty only comes from the level: the picture, the queue order, jelly sizes, ice and links. A jelly always fires at every row and column it passes whose first cube is its color. An experiment that made jellies skip a firing position after each shot (a "reload") was removed, because it made jellies harder to predict.

@@ -31,8 +31,6 @@ export interface Recipe {
   triples?: number;
   /** Linked pairs whose partner starts below the visible rows. */
   farRopes: number;
-  /** Stations between shots; 2 means jellies hit about half as much per lap. */
-  reload?: number;
   hidden: number;
 }
 
@@ -293,7 +291,6 @@ export function buildLevel(slot: Slot, r: Recipe, seed: string, attempt = 0): Le
     columns,
     slots: TUNING.slots,
     belt: TUNING.belt,
-    ...(r.reload && r.reload > 1 ? { reload: r.reload } : {}),
   };
 }
 
@@ -352,7 +349,7 @@ function carefulWins(lvl: Level) {
  * one anywhere) when the spam bot does no better and a careful player still always wins.
  * Stops once spam wins no more than `target` of its tries.
  */
-export function harden(lvl: Level, target: number, rng: Rng, iters = 1500): Level {
+export function harden(lvl: Level, target: number, rng: Rng, iters = 3000): Level {
   let best = lvl;
   let score = spamWins(best);
   for (let it = 0; it < iters && score > target; it++) {
@@ -413,8 +410,9 @@ export function searchLevel(slot: Slot, seed = 'jelly'): Built {
   const base = recipe(slot.index + (slot.mirror ? 12 : 0));
   const cap = spamCap(slot.index);
   const rng = new Rng(hash32(`${seed}:${slot.index}:harden`));
-  // Gentlest first: the base deal, then more and smaller jellies, then slower shots.
-  const variants: Partial<Recipe>[] = [{}, { chunk: [10, 25] }, { chunk: [10, 25], reload: 2 }, { chunk: [5, 20], reload: 2 }];
+  // Gentlest first: the base deal, then more and smaller jellies, then bigger jellies
+  // (which need more than one lap, so they come back to a slot more often).
+  const variants: Partial<Recipe>[] = [{}, { chunk: [10, 25] }, { chunk: [20, 45] }, { chunk: [5, 20] }];
   const tries = slot.index < 6 ? variants.slice(0, 1) : slot.index < 15 ? variants.slice(0, 2) : variants;
   let best: Built | null = null;
   let attempts = 0;

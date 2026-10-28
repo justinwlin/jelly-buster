@@ -14,8 +14,6 @@ export const TUNING = {
   belt: 5,
   /** Waiting slots a returning jelly can park in. */
   slots: 5,
-  /** Stations a jelly needs to reload after a shot (1 = can fire at every station). */
-  reload: 1,
 };
 
 export interface JellySpec {
@@ -44,8 +42,6 @@ export interface Level {
   columns: JellySpec[][];
   slots: number;
   belt: number;
-  /** Stations between a jelly's shots (defaults to TUNING.reload). Higher = fewer hits per lap. */
-  reload?: number;
 }
 
 export interface Jelly {
@@ -62,8 +58,6 @@ export interface Runner {
   j: Jelly;
   /** Ticks travelled since entering the belt. */
   p: number;
-  /** Station index of the last shot (-99 if none yet). */
-  last: number;
   /** Cubes hit since this jelly last passed the launcher. */
   lapHits: number;
 }
@@ -139,7 +133,7 @@ export function cloneState(st: State): State {
     cells: st.cells.slice(),
     cols: st.cols.map((c) => c.map(cj)),
     slots: st.slots.map((j) => (j ? cj(j) : null)),
-    belt: st.belt.map((r) => ({ j: cj(r.j), p: r.p, last: r.last, lapHits: r.lapHits })),
+    belt: st.belt.map((r) => ({ j: cj(r.j), p: r.p, lapHits: r.lapHits })),
     pending: st.pending.map(cj),
     held: st.held ? cj(st.held) : null,
     events: [],
@@ -285,7 +279,7 @@ export function step(st: State) {
 
   if (st.pending.length && !st.belt.some((r) => r.p < spacing * sub)) {
     const j = st.pending.shift()!;
-    st.belt.push({ j, p: 0, last: -99, lapHits: 0 });
+    st.belt.push({ j, p: 0, lapHits: 0 });
     emit(st, { k: 'enter', id: j.id });
   }
 
@@ -298,7 +292,6 @@ export function step(st: State) {
       // steps aside, and only when another is waiting in a slot for belt room.
       if (queueEmpty && !(r.lapHits === 0 && st.slots.some((x) => x))) {
         r.p = 0;
-        r.last = -99;
         r.lapHits = 0;
         emit(st, { k: 'loop', id: r.j.id });
         continue;
@@ -317,7 +310,6 @@ export function step(st: State) {
       emit(st, { k: 'park', id: r.j.id, slot: free });
       continue;
     }
-    if (s - r.last < (st.lvl.reload ?? TUNING.reload)) continue;
     const at = station(w, h, s);
     if (at.side < 0) continue;
     const i = firstInLine(st.cells, w, h, at);
@@ -326,7 +318,6 @@ export function step(st: State) {
     st.left--;
     st.shots++;
     st.lastShot = st.tick;
-    r.last = s;
     r.lapHits++;
     r.j.n--;
     emit(st, { k: 'shot', id: r.j.id, cell: i, color: r.j.color, s });
