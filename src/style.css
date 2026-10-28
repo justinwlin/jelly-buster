@@ -8,6 +8,9 @@
 }
 html, body { margin: 0; height: 100%; overflow: hidden; background: linear-gradient(#76c3ff, #c3a3f5); color: #fff; font-family: var(--font); font-weight: 700;
   user-select: none; -webkit-user-select: none; touch-action: none; overscroll-behavior: none; }
+/* iOS paints the strip under a home-screen app (home indicator, short viewports) with the
+   root's background color, which the gradient shorthand leaves transparent: white. */
+html { background-color: #c3a3f5; }
 canvas#game { position: fixed; inset: 0; width: 100vw; height: 100dvh; display: block; }
 .hidden { display: none !important; }
 button { font-family: var(--font); }
