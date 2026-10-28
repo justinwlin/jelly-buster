@@ -282,20 +282,6 @@ export function drawJelly(ctx: CanvasRenderingContext2D, x: number, y: number, s
     }
   }
 
-  // Count, on the belly when there's a face, centered otherwise.
-  const pulse = 1 + (o.pulse ?? 0) * 0.35;
-  const fs = size * (label.length > 2 ? 0.3 : 0.38) * sc * (face ? 0.86 : 1.05) * pulse;
-  ctx.font = `800 ${Math.round(fs)}px ${FONT}`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.lineJoin = 'round';
-  const ty = face ? h * 0.2 : h * 0.06;
-  ctx.lineWidth = Math.max(2.5, fs * 0.22);
-  ctx.strokeStyle = t.ink;
-  ctx.strokeText(label, 0, ty + fs * 0.06);
-  ctx.fillStyle = '#fff';
-  ctx.fillText(label, 0, ty + fs * 0.06);
-
   // Alarm tint.
   if (o.alarm && o.alarm > 0) {
     ctx.globalAlpha = o.alarm * 0.6;
@@ -347,6 +333,37 @@ export function drawJelly(ctx: CanvasRenderingContext2D, x: number, y: number, s
     ctx.font = `800 ${Math.round(br * 1.25)}px ${FONT}`;
     ctx.fillText(String(o.ice), bx, by + br * 0.08);
     ctx.restore();
+  }
+  // A count tag hangs beside a visible face; sleeping back-row jellies keep
+  // the larger centered number. Draw it last so frost never hides the count.
+  if (label) {
+    const pulse = 1 + (o.pulse ?? 0) * 0.25;
+    const fs = size * (face ? (label.length > 2 ? 0.17 : 0.22) : (label.length > 2 ? 0.3 : 0.38) * 1.05) * sc * pulse;
+    ctx.font = `800 ${Math.round(fs)}px ${FONT}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    if (face) {
+      const bx = size * 0.28 * sc;
+      const by = size * 0.38 * sc;
+      const bw = Math.max(size * 0.23 * sc, ctx.measureText(label).width + size * 0.1 * sc);
+      const bh = fs * 1.25 + size * 0.045 * sc;
+      ctx.fillStyle = '#fff8e8';
+      ctx.strokeStyle = t.ink;
+      ctx.lineWidth = Math.max(1, size * 0.024 * sc);
+      ctx.beginPath();
+      ctx.roundRect(bx - bw / 2, by - bh / 2, bw, bh, bh * 0.42);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = t.ink;
+      ctx.fillText(label, bx, by + fs * 0.04);
+    } else {
+      ctx.lineWidth = Math.max(2.5, fs * 0.22);
+      ctx.strokeStyle = t.ink;
+      ctx.strokeText(label, 0, h * 0.06 + fs * 0.06);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(label, 0, h * 0.06 + fs * 0.06);
+    }
   }
   ctx.restore();
 }
