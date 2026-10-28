@@ -2,6 +2,7 @@
 
 export interface Settings {
   sound: boolean;
+  music: boolean;
   haptics: boolean;
 }
 
@@ -20,7 +21,7 @@ export interface Save {
 const KEY = 'jelly-buster.save.v1';
 
 export function fresh(): Save {
-  return { v: 1, unlocked: 0, coins: 200, stars: {}, settings: { sound: true, haptics: true }, seen: [] };
+  return { v: 1, unlocked: 0, coins: 200, stars: {}, settings: { sound: true, music: true, haptics: true }, seen: [] };
 }
 
 export function load(): Save {

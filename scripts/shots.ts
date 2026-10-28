@@ -37,7 +37,7 @@ for (const [name, opts] of Object.entries(profiles)) {
   await page.reload();
   await page.waitForTimeout(500);
   await shot('title');
-  await page.click('[data-act="play"]');
+  await page.click('[data-act="play"]', { force: true });
   await page.waitForTimeout(600);
   await shot('tutorial');
   await z(page, `z.tap(z.state().cols[0][0].id); z.tap(z.state().cols[1][0].id);`);
@@ -46,13 +46,15 @@ for (const [name, opts] of Object.entries(profiles)) {
   await autoplay(page, 6);
   await shot('later');
   await z(page, 'z.win()');
-  await page.waitForTimeout(1600);
+  await page.waitForTimeout(700);
+  await shot('reveal');
+  await page.waitForTimeout(2600);
   await shot('win');
   // A level with ice and ropes.
   await z(page, 'z.save().unlocked = 99; z.start(29)');
   await page.waitForTimeout(800);
   await shot('mechanics-tip');
-  await page.click('[data-act="ok"]').catch(() => {});
+  await page.click('[data-act="ok"]', { force: true }).catch(() => {});
   await page.waitForTimeout(400);
   await shot('mechanics');
   await autoplay(page, 5);
@@ -62,10 +64,10 @@ for (const [name, opts] of Object.entries(profiles)) {
   await page.waitForTimeout(9000);
   await shot('lose');
   await z(page, 'z.start(0)');
-  await page.click('#btn-pause');
+  await page.click('#btn-pause', { force: true });
   await page.waitForTimeout(300);
-  await page.click('[data-act="menu"]');
-  await page.click('[data-act="levels"]');
+  await page.click('[data-act="menu"]', { force: true });
+  await page.click('[data-act="levels"]', { force: true });
   await page.waitForTimeout(300);
   await shot('levels');
   if (errors.length) console.log(name, 'ERRORS', errors);

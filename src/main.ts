@@ -1,11 +1,14 @@
+import '@fontsource/baloo-2/latin-700.css';
+import '@fontsource/baloo-2/latin-800.css';
 import './style.css';
 import { registerSW } from 'virtual:pwa-register';
-import { launch, launchGroup, newState, revive, stars, step, TUNING, type Level, type State } from './sim/engine';
+import { launch, launchGroup, legalLaunches, locate, newState, revive, stars, step, TUNING, type Level, type State } from './sim/engine';
 import { newFeature, type Feature } from './sim/levels';
 import { PACKS } from './sim/pictures';
+import { exposed } from './sim/track';
 import campaignData from './levels/campaign.json';
-import { buzz, setSound, sfx, unlockAudio } from './game/audio';
-import { confetti, draw, drawJelly, hitTest, newView, onEvents, relayout, update, type View } from './game/render';
+import { buzz, setMusic, setSound, sfx, unlockAudio } from './game/audio';
+import { confetti, draw, drawJelly, hitTest, newView, onEvents, popup, relayout, update, type View } from './game/render';
 import { load, store, type Save } from './game/save';
 
 registerSW({ immediate: true });
@@ -22,6 +25,7 @@ const toastEl = $('toast');
 
 let save: Save = load();
 setSound(save.settings.sound);
+setMusic(save.settings.music);
 let mode: 'title' | 'play' | 'paused' | 'over' = 'title';
 let st: State | null = null;
 let view: View | null = null;
@@ -29,14 +33,13 @@ let levelIndex = 0;
 let acc = 0;
 let last = performance.now();
 let tutorial: 'tap' | 'slot' | null = null;
+/** Title-screen attract mode: a level playing itself behind the menu. */
+let demo: { st: State; view: View; wait: number; next: number } | null = null;
 
 // ---------------------------------------------------------------- sizing
 
 function viewport() {
-  const W = window.innerWidth;
-  const H = window.innerHeight;
-  const dpr = Math.min(3, window.devicePixelRatio || 1);
-  return { W, H, dpr };
+  return { W: window.innerWidth, H: window.innerHeight, dpr: Math.min(3, window.devicePixelRatio || 1) };
 }
 
 function safeInsets() {
@@ -44,10 +47,8 @@ function safeInsets() {
   probe.style.cssText = 'position:fixed;top:env(safe-area-inset-top);bottom:env(safe-area-inset-bottom);visibility:hidden';
   document.body.append(probe);
   const r = probe.getBoundingClientRect();
-  const top = r.top;
-  const bottom = window.innerHeight - r.bottom;
   probe.remove();
-  return { top, bottom };
+  return { top: r.top, bottom: window.innerHeight - r.bottom };
 }
 
 function resize() {
@@ -55,6 +56,7 @@ function resize() {
   canvas.width = Math.round(W * dpr);
   canvas.height = Math.round(H * dpr);
   if (view) relayout(view, W, H, dpr);
+  if (demo) relayout(demo.view, W, H, dpr);
 }
 window.addEventListener('resize', resize);
 
@@ -64,11 +66,13 @@ function show(html: string, handlers: Record<string, () => void> = {}, cls = '')
   screen.className = `screen ${cls}`;
   screen.innerHTML = html;
   for (const [id, fn] of Object.entries(handlers)) {
-    const el = screen.querySelector<HTMLElement>(`[data-act="${id}"]`);
-    el?.addEventListener('click', () => {
-      unlockAudio();
-      fn();
-    });
+    screen.querySelectorAll<HTMLElement>(`[data-act="${id}"]`).forEach((el) =>
+      el.addEventListener('click', () => {
+        unlockAudio();
+        sfx.click();
+        fn();
+      }),
+    );
   }
 }
 
@@ -77,22 +81,27 @@ function hideScreen() {
   screen.innerHTML = '';
 }
 
+let toastTimer = 0;
 function toast(msg: string, ms = 1400) {
   toastEl.textContent = msg;
   toastEl.classList.remove('hidden');
-  clearTimeout((toast as unknown as { t: number }).t);
-  (toast as unknown as { t: number }).t = window.setTimeout(() => toastEl.classList.add('hidden'), ms);
+  toastEl.style.animation = 'none';
+  void toastEl.offsetWidth;
+  toastEl.style.animation = '';
+  clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => toastEl.classList.add('hidden'), ms);
 }
 
 /** A jelly portrait for menus and tips. */
-function jellyCanvas(color: string, n: number | string, size = 64, face = true) {
+function jellyCanvas(color: string, n: number | string, size = 64, face = true, cls = '') {
   const c = document.createElement('canvas');
   const dpr = Math.min(3, window.devicePixelRatio || 1);
   c.width = c.height = size * dpr;
   c.style.width = c.style.height = `${size}px`;
+  if (cls) c.className = cls;
   const x = c.getContext('2d')!;
   x.scale(dpr, dpr);
-  drawJelly(x, size / 2, size / 2 + 4, size * 0.95, color, n, { face });
+  drawJelly(x, size / 2, size / 2 + size * 0.04, size * 0.95, color, n, { face, mood: 'idle', look: { x: 0, y: 0.3 } });
   return c;
 }
 
@@ -101,17 +110,65 @@ function packOf(i: number) {
   return PACKS.find((p) => p.id === id)!;
 }
 
-function thumb(lvl: Level, px = 6): string {
-  const c = document.createElement('canvas');
-  c.width = lvl.w;
-  c.height = lvl.h;
-  const x = c.getContext('2d')!;
-  lvl.cells.forEach((k, i) => {
-    if (k < 0) return;
-    x.fillStyle = lvl.palette[k];
-    x.fillRect(i % lvl.w, Math.floor(i / lvl.w), 1, 1);
-  });
-  return `<img class="thumb" src="${c.toDataURL()}" width="${lvl.w * px}" height="${lvl.h * px}" alt="${lvl.name}">`;
+const thumbs = new Map<string, string>();
+/** A picture as a small data-URL image; locked pictures show as a dark silhouette. */
+function thumbUrl(lvl: Level, locked = false): string {
+  const key = `${lvl.id}:${locked}`;
+  let url = thumbs.get(key);
+  if (!url) {
+    const s = 4;
+    const c = document.createElement('canvas');
+    c.width = lvl.w * s;
+    c.height = lvl.h * s;
+    const x = c.getContext('2d')!;
+    lvl.cells.forEach((k, i) => {
+      if (k < 0) return;
+      x.fillStyle = locked ? 'rgba(60,40,30,0.35)' : lvl.palette[k];
+      x.fillRect((i % lvl.w) * s, Math.floor(i / lvl.w) * s, s - (locked ? 0 : 0.6), s - (locked ? 0 : 0.6));
+    });
+    url = c.toDataURL();
+    thumbs.set(key, url);
+  }
+  return url;
+}
+
+function settingsToggles() {
+  return `<div class="toggles">
+    <button class="toggle ${save.settings.sound ? 'on' : ''}" data-act="sound" aria-pressed="${save.settings.sound}"><i>🔊</i>Sound</button>
+    <button class="toggle ${save.settings.music ? 'on' : ''}" data-act="music" aria-pressed="${save.settings.music}"><i>🎵</i>Music</button>
+    <button class="toggle ${save.settings.haptics ? 'on' : ''}" data-act="haptics" aria-pressed="${save.settings.haptics}"><i>📳</i>Haptics</button>
+  </div>`;
+}
+
+function toggleHandlers(rerender: () => void) {
+  return {
+    sound: () => {
+      save.settings.sound = !save.settings.sound;
+      setSound(save.settings.sound);
+      store(save);
+      rerender();
+    },
+    music: () => {
+      save.settings.music = !save.settings.music;
+      setMusic(save.settings.music);
+      store(save);
+      rerender();
+    },
+    haptics: () => {
+      save.settings.haptics = !save.settings.haptics;
+      store(save);
+      if (save.settings.haptics) buzz(true, 20);
+      rerender();
+    },
+  };
+}
+
+function startDemo() {
+  const pool = [0, 1, 3, 5, 12, 14, 24, 37];
+  const i = pool[Math.floor(Math.random() * pool.length)];
+  const s = newState(LEVELS[i]);
+  const { W, H, dpr } = viewport();
+  demo = { st: s, view: newView(s, W, H, dpr, safeInsets().top, safeInsets().bottom), wait: 0, next: 0 };
 }
 
 function toTitle() {
@@ -120,46 +177,32 @@ function toTitle() {
   view = null;
   hud.classList.add('hidden');
   hideTip();
+  if (!demo) startDemo();
   const next = Math.min(save.unlocked, LEVELS.length - 1);
+  const starsTotal = Object.values(save.stars).reduce((a, b) => a + b, 0);
   show(
     `<div class="title-wrap">
+      <div class="logo" aria-label="Jelly Buster">${[...'Jelly'].map((ch, i) => `<b style="--i:${i}">${ch}</b>`).join('')}<span>${[...'Buster'].map((ch, i) => `<b style="--i:${i + 5}">${ch}</b>`).join('')}</span></div>
       <div class="mascots" id="mascots"></div>
-      <div class="logo">Jelly<span>Buster</span></div>
-      <div class="panel">
-        <p>Send jellies around the belt to munch every cube of the picture.</p>
-        <button class="btn" data-act="play">Play · Level ${next + 1}</button>
-        <button class="btn blue" data-act="levels">Levels</button>
-        <div class="toggles">
-          <button class="toggle ${save.settings.sound ? 'on' : ''}" data-act="sound">🔊 Sound</button>
-          <button class="toggle ${save.settings.haptics ? 'on' : ''}" data-act="haptics">📳 Haptics</button>
+      <div class="panel title-panel">
+        <button class="btn big pulse" data-act="play"><small>Level ${next + 1}</small>Play</button>
+        <div class="row">
+          <button class="btn blue" data-act="levels">Levels</button>
         </div>
+        <div class="title-stats"><span>⭐ ${starsTotal}</span><span><i class="coin sm"></i> ${save.coins}</span></div>
+        ${settingsToggles()}
       </div>
     </div>`,
-    {
-      play: () => startLevel(next),
-      levels: levelsScreen,
-      sound: () => {
-        save.settings.sound = !save.settings.sound;
-        setSound(save.settings.sound);
-        store(save);
-        toTitle();
-      },
-      haptics: () => {
-        save.settings.haptics = !save.settings.haptics;
-        store(save);
-        toTitle();
-      },
-    },
+    { play: () => startLevel(next), levels: levelsScreen, ...toggleHandlers(toTitle) },
     'title',
   );
   const m = $('mascots');
-  [['#9b3df0', 50], ['#ff3d4f', ''], ['#ffd21f', 40]].forEach(([c, n], i) => m.append(jellyCanvas(c as string, n as string, i === 1 ? 96 : 70)));
+  [['#9b3df0', 50], ['#ff3d4f', ''], ['#ffd21f', 40]].forEach(([c, n], i) => m.append(jellyCanvas(c as string, n as string, i === 1 ? 92 : 66, true, `bob b${i}`)));
 }
 
 function levelsScreen() {
-  const packs: string[] = [];
-  let i = 0;
   const groups: { name: string; from: number; to: number }[] = [];
+  let i = 0;
   while (i < LEVELS.length) {
     const encore = LEVELS[i].id.endsWith('/encore');
     const p = packOf(i);
@@ -167,38 +210,46 @@ function levelsScreen() {
     while (i < LEVELS.length && packOf(i) === p && LEVELS[i].id.endsWith('/encore') === encore) i++;
     groups.push({ name: `${p.name}${encore ? ' · Encore' : ''}`, from, to: i });
   }
-  for (const g of groups) {
+  const packs = groups.map((g) => {
+    let got = 0;
     let cells = '';
     for (let k = g.from; k < g.to; k++) {
       const locked = k > save.unlocked;
       const s = save.stars[LEVELS[k].id] ?? 0;
-      cells += `<button class="lv ${locked ? 'locked' : ''} ${k === save.unlocked ? 'current' : ''}" data-act="lv${k}" ${locked ? 'disabled' : ''}>${locked ? '🔒' : k + 1}<small>${'★'.repeat(s)}</small></button>`;
+      got += s;
+      cells += `<button class="lv ${locked ? 'locked' : ''} ${k === save.unlocked ? 'current' : ''}" data-act="lv${k}" ${locked ? 'disabled' : ''} aria-label="Level ${k + 1}">
+        <img src="${thumbUrl(LEVELS[k], locked)}" alt="">
+        <b>${k + 1}</b><small>${[1, 2, 3].map((n) => `<i class="${n <= s ? 'on' : ''}">★</i>`).join('')}</small></button>`;
     }
-    packs.push(`<div class="pack"><h3>${g.name}</h3><div class="grid">${cells}</div></div>`);
-  }
+    return `<div class="pack"><h3>${g.name}<em>★ ${got}/${(g.to - g.from) * 3}</em></h3><div class="grid">${cells}</div></div>`;
+  });
   const handlers: Record<string, () => void> = { back: toTitle };
   for (let k = 0; k <= Math.min(save.unlocked, LEVELS.length - 1); k++) handlers[`lv${k}`] = () => startLevel(k);
-  show(`<div class="panel"><h1>Levels</h1><div class="packs">${packs.join('')}</div><button class="btn ghost" data-act="back">Back</button></div>`, handlers);
+  show(`<div class="panel levels"><div class="ribbon">Levels</div><div class="packs">${packs.join('')}</div><button class="btn ghost" data-act="back">Back</button></div>`, handlers);
+  screen.querySelector('.lv.current')?.scrollIntoView({ block: 'center' });
 }
 
 // ---------------------------------------------------------------- tips
 
-const FEATURE_TIPS: Record<Feature, string> = {
-  ice: 'Frozen jellies thaw after you send out the number of jellies on their ice.',
-  rope: 'Roped jellies go out together. Both must be at the front of their columns.',
-  hidden: 'Mystery jellies show their color when they reach the front.',
-  farRope: 'Some ropes lead off screen. Dig down until both ends are at the front!',
+const FEATURE_TIPS: Record<Feature, { title: string; text: string }> = {
+  ice: { title: 'Frozen jellies', text: 'They thaw after you send out as many jellies as the number on the ice.' },
+  rope: { title: 'Roped jellies', text: 'Tied jellies go out together. Both must be at the front of their columns.' },
+  hidden: { title: 'Mystery jellies', text: 'Their color stays hidden until they reach the front.' },
+  farRope: { title: 'Long ropes', text: 'Some ropes lead off screen. Dig down until both ends are at the front!' },
 };
 
 function showTip(html: string, where: 'top' | 'middle' = 'middle') {
   tipEl.querySelector('p')!.innerHTML = html;
   tipEl.classList.remove('hidden');
+  tipEl.style.animation = 'none';
+  void tipEl.offsetWidth;
+  tipEl.style.animation = '';
   const l = view?.l;
-  tipEl.style.top = where === 'top' || !l ? 'calc(80px + env(safe-area-inset-top))' : `${Math.max(80, l.frame.y + l.frame.h * 0.45)}px`;
+  tipEl.style.top = where === 'top' || !l ? 'calc(88px + env(safe-area-inset-top))' : `${Math.max(88, l.frame.y + l.frame.h * 0.42)}px`;
   const face = tipEl.querySelector('canvas')!;
   const x = face.getContext('2d')!;
   x.clearRect(0, 0, 120, 120);
-  drawJelly(x, 60, 66, 110, '#ff3d4f', '', { face: true });
+  drawJelly(x, 60, 64, 108, '#ff3d4f', '', { face: true, mood: 'happy', wave: 0.6 });
 }
 
 function hideTip() {
@@ -215,8 +266,34 @@ function seen(key: string) {
 
 // ---------------------------------------------------------------- play
 
+const streaks = new Map<number, { n: number; at: number }>();
+let chain = { n: 0, at: -99, level: 0 };
+const COMBOS = [
+  { at: 12, text: 'Nice!', color: '#7be37b' },
+  { at: 24, text: 'Great!', color: '#5ab0ff' },
+  { at: 40, text: 'Awesome!', color: '#ff8a1f' },
+  { at: 60, text: 'Jelly-licious!', color: '#ff69c8' },
+];
+
+function setHud() {
+  if (!st) return;
+  $('hud-level').textContent = `Level ${levelIndex + 1}`;
+  $('hud-coins').textContent = String(save.coins);
+}
+
+let lastPct = -1;
+function updateProgress() {
+  if (!st) return;
+  const total = st.lvl.cells.filter((c) => c >= 0).length;
+  const pct = Math.round((1 - st.left / total) * 100);
+  if (pct === lastPct) return;
+  lastPct = pct;
+  $('hud-bar').style.width = `${pct}%`;
+}
+
 function startLevel(i: number) {
   levelIndex = i;
+  demo = null;
   const lvl = LEVELS[i];
   st = newState(lvl);
   const { W, H, dpr } = viewport();
@@ -225,31 +302,44 @@ function startLevel(i: number) {
   resize();
   mode = 'play';
   acc = 0;
+  lastPct = -1;
+  streaks.clear();
+  chain = { n: 0, at: -99, level: 0 };
   hideScreen();
   hideTip();
   hud.classList.remove('hidden');
-  $('hud-level').textContent = `Level ${i + 1}`;
-  $('hud-coins').textContent = String(save.coins);
+  setHud();
+  updateProgress();
   tutorial = null;
   if (i === 0 && !save.seen.includes('tutorial')) {
     tutorial = 'tap';
     showTip('<span class="hl">Tap a jelly</span> to send it around the belt!');
     view.point = st.cols[0][0]?.id ?? null;
-  } else {
-    const f = newFeature(i);
-    if (f && !seen(`feature:${f}`)) {
-      mode = 'paused';
-      show(
-        `<div class="panel"><h2>New!</h2><div id="feat-j" class="mascots"></div><p>${FEATURE_TIPS[f]}</p><button class="btn" data-act="ok">Got it</button></div>`,
-        { ok: () => resume() },
-      );
-      const box = $('feat-j');
-      const c = f === 'hidden' ? jellyCanvas('#8d8a96', '?', 80, false) : jellyCanvas('#2f8cff', 20, 80, false);
+    return;
+  }
+  const f = newFeature(i);
+  if (f && !seen(`feature:${f}`)) {
+    mode = 'paused';
+    const tip = FEATURE_TIPS[f];
+    show(
+      `<div class="panel"><div class="ribbon">New!</div><div id="feat-j" class="mascots"></div><h2>${tip.title}</h2><p>${tip.text}</p><button class="btn" data-act="ok">Got it</button></div>`,
+      { ok: () => resume() },
+    );
+    const box = $('feat-j');
+    if (f === 'hidden') box.append(jellyCanvas('#9a96a6', '?', 84, false));
+    else if (f === 'ice') {
+      const c = document.createElement('canvas');
+      const dpr = Math.min(3, window.devicePixelRatio || 1);
+      c.width = c.height = 84 * dpr;
+      c.style.width = c.style.height = '84px';
+      const x = c.getContext('2d')!;
+      x.scale(dpr, dpr);
+      drawJelly(x, 42, 46, 76, '#2f8cff', 20, { ice: 3 });
       box.append(c);
-    } else if (i === 1 && !seen('slots')) {
-      showTip('If a jelly comes back and <span class="hl">every slot is full</span>, you lose!', 'top');
-      setTimeout(hideTip, 3500);
-    }
+    } else box.append(jellyCanvas('#2f8cff', 20, 76, false), jellyCanvas('#ff8a1f', 15, 76, false));
+  } else if (i === 1 && !seen('slots')) {
+    showTip('If a jelly comes back and <span class="hl">every slot is full</span>, you lose!', 'top');
+    setTimeout(hideTip, 3800);
   }
 }
 
@@ -264,7 +354,7 @@ function tryLaunch(id: number) {
   const res = launchGroup(st, id);
   if (!res.group) {
     sfx.deny();
-    buzz(save.settings.haptics, 20);
+    buzz(save.settings.haptics, 25);
     if (res.why === 'belt') {
       view.beltFlash = 0.6;
       toast('Belt full: wait for one to come back');
@@ -272,7 +362,7 @@ function tryLaunch(id: number) {
       view.shake = { id, t: 0.35 };
       toast('Frozen! Send out more jellies');
     } else if (res.why === 'rope') {
-      const j = [...st.cols.flat()].find((x) => x.id === id);
+      const j = st.cols.flat().find((x) => x.id === id);
       if (j) view.ropeHint = { a: id, b: j.rope, t: 1.2 };
       view.shake = { id, t: 0.35 };
       toast('Roped: both must be at the front');
@@ -308,17 +398,77 @@ function handleEvents() {
   st.events = [];
   onEvents(view, evs);
   for (const e of evs) {
-    if (e.k === 'shot') sfx.pop(e.color);
-    else if (e.k === 'done') sfx.done();
-    else if (e.k === 'thaw') sfx.thaw();
+    if (e.k === 'shot') {
+      const s = streaks.get(e.id);
+      const n = s && st.tick - s.at < 40 ? s.n + 1 : 0;
+      streaks.set(e.id, { n, at: st.tick });
+      sfx.pop(n);
+      chain = st.tick - chain.at < 30 ? { ...chain, n: chain.n + 1, at: st.tick } : { n: 1, at: st.tick, level: 0 };
+      const c = COMBOS[chain.level];
+      if (c && chain.n >= c.at) {
+        popup(view, c.text, c.color, chain.level >= 3 ? 0.9 : 1);
+        sfx.combo(chain.level);
+        buzz(save.settings.haptics, 15);
+        chain.level++;
+      }
+    } else if (e.k === 'done') {
+      sfx.done();
+      buzz(save.settings.haptics, 18);
+    } else if (e.k === 'thaw') sfx.thaw();
+    else if (e.k === 'enter') sfx.enter();
     else if (e.k === 'park') {
       sfx.park();
+      const used = st.slots.filter((j) => j).length;
+      if (used === st.slots.length - 1) {
+        sfx.warn();
+        toast('Only one slot left!');
+        buzz(save.settings.haptics, [30, 40, 30]);
+      }
       if (tutorial === 'slot') {
         showTip('It came back with hits left. <span class="hl">Tap it</span> to send it again!');
         view.point = e.id;
       }
-    } else if (e.k === 'win') setTimeout(won, 900);
-    else if (e.k === 'lose') setTimeout(() => lost(e.reason), 500);
+    } else if (e.k === 'win') won();
+    else if (e.k === 'lose') setTimeout(() => lost(e.reason), 900);
+  }
+}
+
+function countUp(el: HTMLElement, from: number, to: number, ms: number, tick?: () => void) {
+  const t0 = performance.now();
+  const stepFn = (now: number) => {
+    const u = Math.min(1, (now - t0) / ms);
+    const v = Math.round(from + (to - from) * (1 - Math.pow(1 - u, 3)));
+    if (el.textContent !== String(v)) {
+      el.textContent = String(v);
+      tick?.();
+    }
+    if (u < 1) requestAnimationFrame(stepFn);
+  };
+  requestAnimationFrame(stepFn);
+}
+
+/** Coins fly from the reward pill up to the HUD counter. */
+function flyCoins(from: HTMLElement, n: number) {
+  const a = from.getBoundingClientRect();
+  const b = $('hud-coin-icon').getBoundingClientRect();
+  for (let i = 0; i < n; i++) {
+    const c = document.createElement('i');
+    c.className = 'coin fly';
+    c.style.left = `${a.left + a.width / 2 - 13 + (Math.random() - 0.5) * 40}px`;
+    c.style.top = `${a.top + a.height / 2 - 13 + (Math.random() - 0.5) * 20}px`;
+    document.body.append(c);
+    setTimeout(() => {
+      c.style.transform = `translate(${b.left - parseFloat(c.style.left)}px, ${b.top - parseFloat(c.style.top)}px) scale(0.8)`;
+      c.style.opacity = '0.9';
+    }, 30 + i * 60);
+    setTimeout(() => {
+      c.remove();
+      sfx.coin();
+      const hc = $('hud-coins');
+      hc.parentElement!.classList.remove('bump');
+      void hc.offsetWidth;
+      hc.parentElement!.classList.add('bump');
+    }, 650 + i * 60);
   }
 }
 
@@ -326,34 +476,52 @@ function won() {
   if (!st || !view) return;
   mode = 'over';
   hideTip();
-  sfx.win();
-  buzz(save.settings.haptics, [20, 40, 20]);
-  confetti(view);
   const s = stars(st);
   const lvl = st.lvl;
   const reward = 20 + s * 10;
+  const before = save.coins;
   save.coins += reward;
   save.stars[lvl.id] = Math.max(save.stars[lvl.id] ?? 0, s);
   if (levelIndex + 1 > save.unlocked) save.unlocked = Math.min(LEVELS.length, levelIndex + 1);
   if (levelIndex === 0) seen('tutorial');
   store(save);
-  $('hud-coins').textContent = String(save.coins);
+  buzz(save.settings.haptics, [20, 40, 20, 40, 60]);
+  setTimeout(() => {
+    if (!view) return;
+    sfx.win();
+    confetti(view);
+  }, 350);
   const hasNext = levelIndex + 1 < LEVELS.length;
   const packDone = hasNext && packOf(levelIndex + 1) !== packOf(levelIndex);
-  const starHtml = [1, 2, 3].map((k) => `<span class="${k <= s ? '' : 'off'}">⭐</span>`).join('');
-  const hint = s < 3 ? `<p class="feature">${st.revives ? 'Finish without a revive for more stars.' : 'Use fewer slots for more stars.'}</p>` : '';
-  show(
-    `<div class="panel">
-      <h1>${packDone ? `${packOf(levelIndex).name} complete!` : 'Picture complete!'}</h1>
-      ${thumb(lvl, 5)}
-      <h2>${lvl.name}</h2>
-      <div class="stars">${starHtml}</div>${hint}
-      <div class="reward"><span class="coin"></span>+${reward}</div>
-      ${hasNext ? '<button class="btn" data-act="next">Next level ▶</button>' : '<p>You cleared every picture! More packs coming soon.</p>'}
-      <button class="btn ghost" data-act="menu">Menu</button>
-    </div>`,
-    { next: () => startLevel(levelIndex + 1), menu: toTitle },
-  );
+  setTimeout(() => {
+    if (mode !== 'over' || !st) return;
+    const hint = s < 3 ? `<p class="hint">${st.revives ? 'Finish without a revive for more stars.' : 'Use fewer slots for more stars.'}</p>` : '<p class="hint">Perfect!</p>';
+    show(
+      `<div class="panel win">
+        <div class="ribbon">${packDone ? `${packOf(levelIndex).name} complete!` : `Level ${levelIndex + 1} complete!`}</div>
+        <div class="stars">${[1, 2, 3].map((k) => `<span class="star ${k <= s ? 'on' : ''}" style="--d:${0.25 + k * 0.3}s">★</span>`).join('')}</div>
+        <img class="thumb" src="${thumbUrl(lvl)}" alt="${lvl.name}">
+        <h2>${lvl.name}</h2>
+        ${hint}
+        <div class="reward" id="reward"><i class="coin"></i><b>+<span id="reward-n">0</span></b></div>
+        ${hasNext ? '<button class="btn big" data-act="next">Next level</button>' : '<p>You cleared every picture! More packs coming soon.</p>'}
+        <button class="btn ghost" data-act="menu">Menu</button>
+      </div>`,
+      { next: () => startLevel(levelIndex + 1), menu: toTitle },
+    );
+    for (let k = 0; k < s; k++) setTimeout(() => sfx.star(k), (0.25 + (k + 1) * 0.3) * 1000 + 150);
+    setTimeout(() => {
+      const el = $('reward-n');
+      if (!el) return;
+      countUp(el, 0, reward, 600, () => sfx.coin());
+      setTimeout(() => {
+        const r = document.getElementById('reward');
+        if (r) flyCoins(r, 6);
+        const hc = $('hud-coins');
+        setTimeout(() => countUp(hc, before, save.coins, 500), 650);
+      }, 700);
+    }, 1300);
+  }, 1700);
 }
 
 function lost(reason: 'full' | 'stuck') {
@@ -361,14 +529,18 @@ function lost(reason: 'full' | 'stuck') {
   mode = 'over';
   hideTip();
   sfx.lose();
-  buzz(save.settings.haptics, [40, 60, 40]);
+  buzz(save.settings.haptics, [60, 60, 60]);
   const cost = REVIVE_COST * (st.revives + 1);
   const can = reason === 'full' && save.coins >= cost;
+  const total = st.lvl.cells.filter((c) => c >= 0).length;
+  const pct = Math.round((1 - st.left / total) * 100);
   show(
-    `<div class="panel">
-      <h1>${reason === 'full' ? 'Out of room!' : 'No moves left'}</h1>
+    `<div class="panel lose">
+      <div class="ribbon red">${reason === 'full' ? 'Out of room!' : 'No moves left'}</div>
+      <div id="sad-j" class="mascots"></div>
       <p>${reason === 'full' ? 'A jelly came back with hits left and every slot was full.' : 'Nothing left can reach a cube of its color.'}</p>
-      ${reason === 'full' ? `<button class="btn orange" data-act="revive" ${can ? '' : 'disabled'}>+1 slot and keep going · <span class="coin" style="width:20px;height:20px;vertical-align:-3px"></span> ${cost}</button>` : ''}
+      <div class="meter"><div style="width:${pct}%"></div><span>${pct}% cleared</span></div>
+      ${reason === 'full' ? `<button class="btn orange big" data-act="revive" ${can ? '' : 'disabled'}><small>+1 slot and keep going</small><i class="coin sm"></i> ${cost}</button>` : ''}
       <button class="btn" data-act="retry">Try again</button>
       <button class="btn ghost" data-act="menu">Menu</button>
     </div>`,
@@ -378,7 +550,8 @@ function lost(reason: 'full' | 'stuck') {
         save.coins -= cost;
         store(save);
         revive(st);
-        $('hud-coins').textContent = String(save.coins);
+        view.lost = null;
+        setHud();
         const { W, H, dpr } = viewport();
         relayout(view, W, H, dpr);
         resume();
@@ -387,41 +560,41 @@ function lost(reason: 'full' | 'stuck') {
       menu: toTitle,
     },
   );
+  const c = document.createElement('canvas');
+  const dpr = Math.min(3, window.devicePixelRatio || 1);
+  c.width = c.height = 84 * dpr;
+  c.style.width = c.style.height = '84px';
+  const x = c.getContext('2d')!;
+  x.scale(dpr, dpr);
+  drawJelly(x, 42, 46, 78, st.held ? st.lvl.palette[st.held.color] : '#ff3d4f', st.held?.n ?? '', { face: true, mood: 'worried', look: { x: 0, y: 0.4 } });
+  $('sad-j').append(c);
 }
 
 function pauseMenu() {
   if (mode !== 'play') return;
   mode = 'paused';
   show(
-    `<div class="panel"><h1>Paused</h1>
-      <button class="btn" data-act="resume">Resume</button>
+    `<div class="panel"><div class="ribbon">Paused</div>
+      <button class="btn big" data-act="resume">Resume</button>
       <button class="btn blue" data-act="restart">Restart level</button>
-      <div class="toggles">
-        <button class="toggle ${save.settings.sound ? 'on' : ''}" data-act="sound">🔊 Sound</button>
-        <button class="toggle ${save.settings.haptics ? 'on' : ''}" data-act="haptics">📳 Haptics</button>
-      </div>
+      ${settingsToggles()}
       <button class="btn ghost" data-act="menu">Menu</button></div>`,
     {
       resume,
       restart: () => startLevel(levelIndex),
       menu: toTitle,
-      sound: () => {
-        save.settings.sound = !save.settings.sound;
-        setSound(save.settings.sound);
-        store(save);
+      ...toggleHandlers(() => {
         mode = 'play';
         pauseMenu();
-      },
-      haptics: () => {
-        save.settings.haptics = !save.settings.haptics;
-        store(save);
-        mode = 'play';
-        pauseMenu();
-      },
+      }),
     },
   );
 }
-$('btn-pause').addEventListener('click', pauseMenu);
+$('btn-pause').addEventListener('click', () => {
+  unlockAudio();
+  sfx.click();
+  pauseMenu();
+});
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) pauseMenu();
 });
@@ -431,27 +604,71 @@ window.addEventListener('keydown', (e) => {
     else if (mode === 'paused') resume();
   }
 });
+window.addEventListener('pointerdown', () => unlockAudio(), { once: true });
 
 // ---------------------------------------------------------------- loop
+
+/** Demo player: sends a jelly whose color is showing, slot jellies first. */
+function demoPick(s: State): number | null {
+  const legal = legalLaunches(s);
+  if (!legal.length) return null;
+  const ex = exposed(s.cells, s.lvl.w, s.lvl.h);
+  const want = new Set([...ex].map((i) => s.cells[i]));
+  const color = (id: number) => {
+    const at = locate(s, id)!;
+    return at.slot >= 0 ? s.slots[at.slot]!.color : s.cols[at.col][0].color;
+  };
+  const good = legal.filter((id) => want.has(color(id)));
+  if (good.length) return good[Math.floor(Math.random() * good.length)];
+  return !s.belt.length && !s.pending.length ? legal[0] : null;
+}
 
 function frame(now: number) {
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
+  const h = 1 / TUNING.hz;
   if (st && view) {
     if (mode === 'play') {
       acc += dt;
-      const h = 1 / TUNING.hz;
       while (acc >= h) {
         step(st);
         handleEvents();
         acc -= h;
       }
+      updateProgress();
+    } else if (mode === 'over') {
+      // Keep the belt running for the celebration (no new events matter).
+      st.events = [];
     }
     update(view, mode === 'paused' ? 0 : dt);
     draw(ctx, view);
+  } else if (demo) {
+    const d = demo;
+    acc += dt;
+    while (acc >= h) {
+      if (d.wait-- <= 0 && d.st.status === 'play' && d.st.belt.length + d.st.pending.length < d.st.lvl.belt) {
+        const id = demoPick(d.st);
+        if (id !== null) launch(d.st, id);
+        d.wait = 24;
+      }
+      step(d.st);
+      const evs = d.st.events;
+      d.st.events = [];
+      onEvents(d.view, evs);
+      if (d.st.status !== 'play') {
+        d.next += h;
+        if (d.next > 3) startDemo();
+        break;
+      }
+      acc -= h;
+    }
+    if (demo) {
+      update(demo.view, dt);
+      draw(ctx, demo.view);
+    }
   } else {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = '#6e6763';
+    ctx.fillStyle = '#8f857c';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
   }
   requestAnimationFrame(frame);

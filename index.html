@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <meta name="theme-color" content="#6e6763" />
+    <meta name="theme-color" content="#8f857c" />
     <meta name="description" content="Send jellies around the belt to munch every cube of the picture. Plays offline on phone and desktop." />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -16,8 +16,11 @@
   <body>
     <canvas id="game" aria-label="Game board"></canvas>
     <div id="hud" class="hidden">
-      <div class="coins"><span class="coin"></span><b id="hud-coins">0</b></div>
-      <div class="lvl" id="hud-level">Level 1</div>
+      <div class="coins"><i class="coin" id="hud-coin-icon"></i><b id="hud-coins">0</b></div>
+      <div class="lvl-wrap">
+        <div class="lvl" id="hud-level">Level 1</div>
+        <div class="progress" aria-label="Picture cleared"><div id="hud-bar"></div></div>
+      </div>
       <button id="btn-pause" class="icon-btn" aria-label="Pause">
         <svg viewBox="0 0 24 24" width="22" height="22"><rect x="6" y="5" width="4" height="14" rx="1.5" fill="currentColor"/><rect x="14" y="5" width="4" height="14" rx="1.5" fill="currentColor"/></svg>
       </button>

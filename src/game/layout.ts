@@ -33,12 +33,15 @@ export interface Layout {
   qSize: number;
   /** Lowest y where queue rows are still drawn. */
   qBottom: number;
+  /** Left edge and width of the slots + queue panel. */
+  panelX: number;
+  panelW: number;
   /** Size of a jelly on the belt. */
   beltSize: number;
   landscape: boolean;
 }
 
-const TOP_BAR = 64;
+const TOP_BAR = 78;
 
 export function computeLayout(W: number, H: number, gw: number, gh: number, nSlots: number, nCols: number, safeTop = 0, safeBottom = 0): Layout {
   const landscape = W > H * 1.15;
@@ -53,7 +56,7 @@ export function computeLayout(W: number, H: number, gw: number, gh: number, nSlo
   let boardY: number;
   let panel: { x: number; y: number; w: number; h: number };
   if (landscape) {
-    const availH = H - top - 12 - safeBottom;
+    const availH = H - top - 34 - safeBottom;
     const availW = W * 0.58;
     cs = Math.min(availW / bw, availH / bh);
     boardX = Math.max(12, (W * 0.58 - bw * cs) / 2);
@@ -78,13 +81,13 @@ export function computeLayout(W: number, H: number, gw: number, gh: number, nSlo
   const frame = { x: px - outer, y: py - outer, w: gw * cs + 2 * outer, h: gh * cs + 2 * outer, r: lane * 1.1 };
 
   const slotSize = Math.min(64, (panel.w - 16) / (nSlots + 0.8), panel.h * 0.2);
-  const slotY = panel.y + slotSize * 0.65;
+  const slotY = panel.y + slotSize * 0.65 + 12;
   const slotGap = Math.min(slotSize * 0.25, (panel.w - slotSize * nSlots) / Math.max(1, nSlots + 1));
   const slotsW = nSlots * slotSize + (nSlots - 1) * slotGap;
   const slots = Array.from({ length: nSlots }, (_, i) => ({ x: panel.x + (panel.w - slotsW) / 2 + slotSize / 2 + i * (slotSize + slotGap), y: slotY }));
 
   const qTop = slotY + slotSize * 0.75;
-  const qSize = Math.min(72, slotSize * 1.1, (panel.w - 20) / (nCols * 1.25));
+  const qSize = Math.min(86, slotSize * 1.3, (panel.w - 20) / (nCols * 1.22), (panel.y + panel.h - slotY - slotSize) / 2.4);
   const qPitch = qSize * 1.05;
   const qx = Array.from({ length: nCols }, (_, i) => panel.x + panel.w / 2 + (i - (nCols - 1) / 2) * qSize * 1.18);
   const qy = qTop + qSize * 0.62;
@@ -108,6 +111,8 @@ export function computeLayout(W: number, H: number, gw: number, gh: number, nSlo
     qPitch,
     qSize,
     qBottom: panel.y + panel.h,
+    panelX: landscape ? panel.x - 8 : 0,
+    panelW: landscape ? W - panel.x + 8 : W,
     beltSize: lane * 1.02,
     landscape,
   };

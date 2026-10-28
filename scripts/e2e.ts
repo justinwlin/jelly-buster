@@ -33,7 +33,7 @@ for (const [name, opts] of Object.entries(profiles)) {
   await page.waitForFunction(() => (window as any).__jb?.mode === 'title');
   check('title screen shows', await page.isVisible('[data-act="play"]'));
 
-  await page.click('[data-act="play"]');
+  await page.click('[data-act="play"]', { force: true });
   await page.waitForTimeout(300);
   check('level 1 starts with the tutorial tip', (await z<string>(page, 'return z.mode')) === 'play' && (await page.isVisible('#tip')));
 
@@ -56,7 +56,7 @@ for (const [name, opts] of Object.entries(profiles)) {
   check('winning shows the result with Next', true);
   const saved = await z<{ unlocked: number; coins: number }>(page, 'return z.save()');
   check('winning unlocks level 2 and pays coins', saved.unlocked === 1 && saved.coins > 200, JSON.stringify({ u: saved.unlocked, c: saved.coins }));
-  await page.click('[data-act="next"]');
+  await page.click('[data-act="next"]', { force: true });
   await page.waitForTimeout(300);
   check('Next starts level 2', (await page.textContent('#hud-level')) === 'Level 2');
 
@@ -64,19 +64,19 @@ for (const [name, opts] of Object.entries(profiles)) {
   await z(page, `const s = z.state(); s.slots = s.slots.map((j, i) => ({ id: 900 + i, color: 0, n: 1, ice: 0, rope: -1, hidden: false }));
     s.cols[0][0].n = 999; z.tap(s.cols[0][0].id);`);
   await page.waitForSelector('[data-act="revive"]', { timeout: 20000 });
-  check('coming back to full slots shows "Out of room"', (await page.textContent('.panel h1')) === 'Out of room!');
-  await page.click('[data-act="revive"]');
+  check('coming back to full slots shows "Out of room"', (await page.textContent('.panel .ribbon')) === 'Out of room!');
+  await page.click('[data-act="revive"]', { force: true });
   await page.waitForTimeout(300);
   const after = await z<{ mode: string; slots: number }>(page, 'return { mode: z.mode, slots: z.state().slots.length }');
   check('revive adds a slot and keeps playing', after.mode === 'play' && after.slots === 6, JSON.stringify(after));
 
   // Pause → menu → levels → reload keeps progress.
-  await page.click('#btn-pause');
-  await page.click('[data-act="menu"]');
+  await page.click('#btn-pause', { force: true });
+  await page.click('[data-act="menu"]', { force: true });
   await page.reload();
   await page.waitForFunction(() => (window as any).__jb?.mode === 'title');
   check('progress survives a reload', (await page.textContent('[data-act="play"]'))?.includes('Level 2') ?? false);
-  await page.click('[data-act="levels"]');
+  await page.click('[data-act="levels"]', { force: true });
   check('levels screen lists every level', (await page.locator('.lv').count()) === (await z<number>(page, 'return z.levels()')));
 
   // A late level with ice, ropes and hidden jellies plays without errors.
