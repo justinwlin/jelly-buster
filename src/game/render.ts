@@ -409,6 +409,9 @@ export function update(v: View, dt: number) {
         vis.hop = { fx: vis.x, fy: vis.y, t: leaving ? -HOP_CROUCH : 0, dur, lift, crouch: leaving ? 0.3 : 0 };
       }
       vis.place = t.place;
+    } else if (t.place === 'slot' && !vis.hop && t.x < vis.x - l.slotSize * 0.3) {
+      // A freed slot makes everyone to its right hop left, with a tiny wind-up.
+      vis.hop = { fx: vis.x, fy: vis.y, t: -HOP_CROUCH * 0.7, dur: 0.3, lift: l.slotSize * 0.42, crouch: 0.18 };
     }
     if (vis.hop) {
       const h = vis.hop;

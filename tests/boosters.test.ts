@@ -140,7 +140,7 @@ describe('merge', () => {
     ];
     expect(BOOSTERS.merge.targets(st)).toEqual([1, 3, 4]);
     expect(useBooster(st, 'merge', 3)).toBe(true);
-    expect(st.slots.map((j) => j?.n ?? null)).toEqual([null, 4, 4, null, null]);
+    expect(st.slots.map((j) => j?.n ?? null)).toEqual([4, 4, null, null, null]);
     expect(canUse(st, 'merge')).toBe(false);
   });
 

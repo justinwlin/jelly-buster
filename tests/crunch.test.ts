@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { launch, lockedSlots, newState, revive, step, unlockSlot, type Level } from '../src/sim/engine';
+import { launch, lift, lockedSlots, merge, newState, revive, step, TUNING, unlockSlot, type Jelly, type Level } from '../src/sim/engine';
+import { trackLength } from '../src/sim/track';
 import { buySlot, reward, slotPrice } from '../src/game/economy';
 import { fresh } from '../src/game/save';
 import { isHard, recipe } from '../src/sim/levels';
@@ -24,6 +25,30 @@ describe('layered cubes', () => {
 });
 
 describe('locked slots', () => {
+  it('slides waiting jellies left after launch, propeller lift, and merge', () => {
+    const st = newState(level());
+    const jelly = (id: number, color = 0): Jelly => ({ id, color, n: 1, ice: 0, link: -1, hidden: false });
+    st.cols = [[]];
+    st.slots = [jelly(10), jelly(11, 1), jelly(12), null, null];
+    expect(launch(st, 10)).toBe(true);
+    expect(st.slots.map((j) => j?.id ?? null)).toEqual([11, 12, null, null, null]);
+    st.pending = [];
+    expect(lift(st, 11)).toBe(true);
+    expect(st.slots.map((j) => j?.id ?? null)).toEqual([12, null, null, null, null]);
+    st.flyers = [];
+    st.slots = [jelly(20), jelly(21, 1), jelly(22), null, null];
+    expect(merge(st, 20)).toBe(true);
+    expect(st.slots.map((j) => j?.id ?? null)).toEqual([20, 21, null, null, null]);
+  });
+
+  it('parks a returning jelly in the leftmost available slot', () => {
+    const st = newState(level());
+    st.slots = [null, null, null];
+    st.belt = [{ j: { id: 10, color: 1, n: 1, ice: 0, link: -1, hidden: false }, p: trackLength(st.lvl.w, st.lvl.h) * TUNING.sub - 1, lapHits: 0 }];
+    step(st);
+    expect(st.slots.map((j) => j?.id ?? null)).toEqual([10, null, null]);
+  });
+
   it('unlocks only available sockets and resets on a new attempt', () => {
     const lvl = level();
     const st = newState(lvl);

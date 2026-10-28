@@ -196,6 +196,12 @@ function pop(st: State, i: number) {
 /** Slot sockets still locked. */
 export const lockedSlots = (st: State) => Math.max(0, (st.lvl.sockets ?? st.lvl.slots) - st.slots.length);
 
+/** Keep waiting jellies in the leftmost open slots, preserving their order. */
+function compactSlots(st: State) {
+  const waiting = st.slots.filter((j): j is Jelly => j !== null);
+  st.slots = Array.from({ length: st.slots.length }, (_, i) => waiting[i] ?? null);
+}
+
 /** Open a locked slot (bought with gold) for the rest of this game. */
 export function unlockSlot(st: State): boolean {
   if (st.status !== 'play' || !lockedSlots(st)) return false;
@@ -277,6 +283,7 @@ export function launch(st: State, id: number): boolean {
     st.launches++;
     emit(st, { k: 'launch', id: j.id, slot: at.slot, col: at.col });
   }
+  compactSlots(st);
   thaw(st, group.length);
   return true;
 }
@@ -317,6 +324,7 @@ export function lift(st: State, id: number): boolean {
   st.flyers.push({ j, t: 0 });
   st.launches++;
   emit(st, { k: 'lift', id, slot: at.slot, col: at.col });
+  if (at.slot >= 0) compactSlots(st);
   thaw(st, 1);
   return true;
 }
@@ -370,6 +378,7 @@ export function merge(st: State, id: number): boolean {
     st.slots[i] = null;
   });
   emit(st, { k: 'merge', id, from });
+  compactSlots(st);
   return true;
 }
 
