@@ -107,11 +107,26 @@ export function drawJunimo(ctx: CanvasRenderingContext2D, x: number, y: number, 
 
   const label = o.hidden ? '?' : String(n);
   if (label) {
-    const fs = (o.face ?? false) ? (label.length > 2 ? 5.2 : 6.5) : (label.length > 2 ? 6 : 7.5);
+    const face = o.face ?? false;
+    const fs = face ? (label.length > 2 ? 5.1 : 6.2) : (label.length > 2 ? 6 : 7.5);
     ctx.font = `900 ${fs * (1 + (o.pulse ?? 0) * 0.13)}px "Baloo 2", system-ui, sans-serif`;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
-    ctx.lineWidth = 1.8; ctx.strokeStyle = INK; ctx.strokeText(label, 12, (o.face ?? false) ? 18 : 15.5);
-    ctx.fillStyle = '#fff'; ctx.fillText(label, 12, (o.face ?? false) ? 18 : 15.5);
+    if (face) {
+      // A hanging tag keeps the hit count clear of the eyes, cheeks and smile.
+      const cx = 18.4, cy = 21.1;
+      const bw = Math.max(7.5, ctx.measureText(label).width + 3.2);
+      ctx.fillStyle = '#fff8e8';
+      ctx.strokeStyle = INK;
+      ctx.lineWidth = 0.75;
+      ctx.beginPath();
+      ctx.roundRect(cx - bw / 2, cy - 3.3, bw, 6.6, 2.2);
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = INK;
+      ctx.fillText(label, cx, cy + 0.1);
+    } else {
+      ctx.lineWidth = 1.8; ctx.strokeStyle = INK; ctx.strokeText(label, 12, 15.5);
+      ctx.fillStyle = '#fff'; ctx.fillText(label, 12, 15.5);
+    }
   }
   if (o.alarm) { ctx.fillStyle = `rgba(255,42,42,${o.alarm * 0.4})`; ctx.fillRect(5, 8, 14, 12); }
   if (o.glow) {
