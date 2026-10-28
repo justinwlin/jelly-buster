@@ -1,0 +1,137 @@
+// Headless players used to tune difficulty and to check generated levels are winnable.
+//
+//  random  taps any legal jelly whenever the belt has room
+//  greedy  sends the jelly whose color has the most cubes exposed right now
+//  smart   tries every legal tap in a cloned game for one lap and picks the best
+//  human   smart, but slower to react and sometimes picks a worse option
+
+import { cloneState, launch, legalLaunches, locate, newState, slotsUsed, stars, step, TUNING, type Level, type State } from './engine';
+import { Rng } from './rng';
+import { exposed, trackLength } from './track';
+
+export type Policy = 'random' | 'greedy' | 'smart' | 'human';
+export const POLICIES: Policy[] = ['random', 'greedy', 'human', 'smart'];
+
+export interface BotResult {
+  won: boolean;
+  reason: State['reason'];
+  seconds: number;
+  peak: number;
+  launches: number;
+  stars: number;
+  /** Fraction of cubes cleared. */
+  cleared: number;
+}
+
+const REACT: Record<Policy, number> = { random: 30, greedy: 12, smart: 6, human: 36 };
+
+function colorOf(st: State, id: number) {
+  const at = locate(st, id)!;
+  return at.slot >= 0 ? st.slots[at.slot]!.color : st.cols[at.col][at.depth].color;
+}
+
+function fromSlot(st: State, id: number) {
+  return locate(st, id)!.slot >= 0;
+}
+
+/** Run the game forward without new taps for `ticks` (or until it ends). */
+function coast(st: State, ticks: number) {
+  for (let i = 0; i < ticks && st.status === 'play'; i++) step(st);
+}
+
+interface Option {
+  id: number;
+  hits: number;
+  score: number;
+}
+
+/** Score every legal tap by playing one lap ahead in a copy of the game. */
+export function rankOptions(st: State): Option[] {
+  const legal = legalLaunches(st);
+  if (!legal.length) return [];
+  const lap = trackLength(st.lvl.w, st.lvl.h) * TUNING.sub + TUNING.spacing * TUNING.sub * (st.pending.length + 2);
+  const base = cloneState(st);
+  coast(base, lap);
+  const baseShots = base.shots;
+  const baseLost = base.status === 'lost';
+  const out: Option[] = [];
+  for (const id of legal) {
+    const c = cloneState(st);
+    const slotBefore = slotsUsed(c);
+    const wasSlot = fromSlot(c, id);
+    launch(c, id);
+    coast(c, lap);
+    const hits = c.shots - baseShots;
+    let score = hits;
+    if (c.status === 'lost' && !baseLost) score -= 1000;
+    if (c.status === 'won') score += 1000;
+    // Prefer taps that leave slots free: queue jellies that come back cost a slot.
+    const slotAfter = slotsUsed(c);
+    score -= (slotAfter - slotBefore) * (2 + 3 * slotBefore);
+    if (wasSlot) score += 0.5;
+    out.push({ id, hits, score });
+  }
+  return out.sort((a, b) => b.score - a.score || a.id - b.id);
+}
+
+function decide(st: State, policy: Policy, rng: Rng): number | null {
+  const legal = legalLaunches(st);
+  if (!legal.length) return null;
+  const idle = !st.belt.length && !st.pending.length;
+
+  if (policy === 'random') return rng.pick(legal);
+
+  if (policy === 'greedy') {
+    const ex = exposed(st.cells, st.lvl.w, st.lvl.h);
+    const count = new Map<number, number>();
+    for (const i of ex) count.set(st.cells[i], (count.get(st.cells[i]) ?? 0) + 1);
+    let best: number | null = null;
+    let bestScore = 0;
+    for (const id of legal) {
+      const s = (count.get(colorOf(st, id)) ?? 0) + (fromSlot(st, id) ? 0.5 : 0);
+      if (s > bestScore && (count.get(colorOf(st, id)) ?? 0) > 0) [best, bestScore] = [id, s];
+    }
+    if (best !== null) return best;
+    return idle ? rng.pick(legal) : null;
+  }
+
+  const opts = rankOptions(st);
+  const useful = opts.filter((o) => o.hits > 0 && o.score > 0);
+  if (policy === 'human') {
+    if (rng.chance(0.06)) return rng.pick(legal);
+    if (useful.length > 1 && rng.chance(0.25)) return useful[1].id;
+  }
+  if (useful.length) return useful[0].id;
+  if (!idle) return null;
+  // Nothing helps right now: dig into the queue with the least harmful tap (re-sending a
+  // slot jelly that hits nothing just wastes a lap).
+  const dig = opts.filter((o) => o.score > -1000 && !fromSlot(st, o.id));
+  return (dig[0] ?? opts[0])?.id ?? null;
+}
+
+export function playBot(lvl: Level, policy: Policy, seed = 1, maxSeconds = 900): BotResult {
+  const st = newState(lvl);
+  st.log = false;
+  const rng = new Rng(seed);
+  const react = REACT[policy];
+  const total = st.left;
+  const maxTicks = maxSeconds * TUNING.hz;
+  let wait = 0;
+  while (st.status === 'play' && st.tick < maxTicks) {
+    if (wait-- <= 0 && st.belt.length + st.pending.length < lvl.belt) {
+      const id = decide(st, policy, rng);
+      if (id !== null) launch(st, id);
+      wait = react;
+    }
+    step(st);
+  }
+  return {
+    won: st.status === 'won',
+    reason: st.status === 'play' ? null : st.reason,
+    seconds: st.tick / TUNING.hz,
+    peak: st.peak,
+    launches: st.launches,
+    stars: st.status === 'won' ? stars(st) : 0,
+    cleared: 1 - st.left / total,
+  };
+}
