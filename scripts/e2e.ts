@@ -61,7 +61,7 @@ for (const [name, opts] of Object.entries(profiles)) {
   check('Next starts level 2', (await page.textContent('#hud-level')) === 'Level 2');
 
   // Fill every slot with a dud, then send a jelly that can't finish: it comes back to full slots.
-  await z(page, `const s = z.state(); s.slots = s.slots.map((j, i) => ({ id: 900 + i, color: 0, n: 1, ice: 0, rope: -1, hidden: false }));
+  await z(page, `const s = z.state(); s.slots = s.slots.map((j, i) => ({ id: 900 + i, color: 0, n: 1, ice: 0, link: -1, hidden: false }));
     s.cols[0][0].n = 999; z.tap(s.cols[0][0].id);`);
   await page.waitForSelector('[data-act="revive"]', { timeout: 20000 });
   check('coming back to full slots shows "Out of room"', (await page.textContent('.panel .ribbon')) === 'Out of room!');

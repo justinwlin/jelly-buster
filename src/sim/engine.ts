@@ -24,8 +24,8 @@ export interface JellySpec {
   n: number;
   /** Frozen until this many more jellies have been sent out. */
   ice?: number;
-  /** Partner id: both must be sent out together. */
-  rope?: number;
+  /** Link group: every jelly with the same link (2 or 3 of them) goes out together. */
+  link?: number;
   /** Color is hidden until the jelly reaches the front of its column. */
   hidden?: boolean;
 }
@@ -51,7 +51,8 @@ export interface Jelly {
   color: number;
   n: number;
   ice: number;
-  rope: number;
+  /** Link group id, -1 when not linked. */
+  link: number;
   hidden: boolean;
 }
 
@@ -111,7 +112,7 @@ export function newState(lvl: Level): State {
     cells,
     left: cells.filter((c) => c >= 0).length,
     cols: lvl.columns.map((col) =>
-      col.map((j) => ({ id: j.id, color: j.color, n: j.n, ice: j.ice ?? 0, rope: j.rope ?? -1, hidden: !!j.hidden })),
+      col.map((j) => ({ id: j.id, color: j.color, n: j.n, ice: j.ice ?? 0, link: j.link ?? -1, hidden: !!j.hidden })),
     ),
     slots: Array.from({ length: lvl.slots }, () => null),
     belt: [],
@@ -159,15 +160,27 @@ export function locate(st: State, id: number): { slot: number; col: number; dept
   return null;
 }
 
-/** True if this queue jelly is at the front of its column and not frozen. */
-function frontReady(st: State, id: number): boolean {
-  const at = locate(st, id);
-  if (!at || at.slot >= 0 || at.depth !== 0) return false;
-  return st.cols[at.col][0].ice <= 0;
+/** Queue jellies sharing a link, with where they sit. */
+function members(st: State, link: number) {
+  const out: { j: Jelly; col: number; depth: number }[] = [];
+  st.cols.forEach((col, c) => col.forEach((j, d) => j.link === link && out.push({ j, col: c, depth: d })));
+  return out;
 }
 
 /**
- * The jellies a tap on `id` would send out (one, or a roped pair), or null when the tap
+ * Can a linked group leave right now (ignoring belt room)? Every member must be unfrozen
+ * and have only fellow members ahead of it in its column.
+ */
+function linkReady(st: State, link: number): 'ice' | 'rope' | null {
+  for (const m of members(st, link)) {
+    if (m.j.ice > 0) return 'ice';
+    if (!st.cols[m.col].slice(0, m.depth).every((x) => x.link === link)) return 'rope';
+  }
+  return null;
+}
+
+/**
+ * The jellies a tap on `id` would send out (one, or a linked group), or null when the tap
  * is not allowed right now. `why` says what's blocking it for UI feedback.
  */
 export function launchGroup(st: State, id: number): { group: Jelly[]; why: null } | { group: null; why: 'belt' | 'ice' | 'rope' | 'buried' | 'over' } {
@@ -178,28 +191,33 @@ export function launchGroup(st: State, id: number): { group: Jelly[]; why: null 
   if (at.slot >= 0) {
     group = [st.slots[at.slot]!];
   } else {
-    if (at.depth !== 0) return { group: null, why: 'buried' };
-    const j = st.cols[at.col][0];
-    if (j.ice > 0) return { group: null, why: 'ice' };
-    if (j.rope >= 0) {
-      if (!frontReady(st, j.rope)) return { group: null, why: 'rope' };
-      const pat = locate(st, j.rope)!;
-      group = [j, st.cols[pat.col][0]];
-    } else group = [j];
+    const j = st.cols[at.col][at.depth];
+    if (j.link >= 0) {
+      // Any member can be tapped; the group leaves front-most first.
+      const why = linkReady(st, j.link);
+      if (why) return { group: null, why: at.depth === 0 || why === 'ice' ? why : 'buried' };
+      group = members(st, j.link)
+        .sort((a, b) => a.depth - b.depth || a.col - b.col)
+        .map((m) => m.j);
+    } else {
+      if (at.depth !== 0) return { group: null, why: 'buried' };
+      if (j.ice > 0) return { group: null, why: 'ice' };
+      group = [j];
+    }
   }
   if (st.belt.length + st.pending.length + group.length > st.lvl.belt) return { group: null, why: 'belt' };
   return { group, why: null };
 }
 
-/** Send a jelly (and its rope partner) out onto the belt. Returns false if not allowed. */
+/** Send a jelly (and its linked group) out onto the belt. Returns false if not allowed. */
 export function launch(st: State, id: number): boolean {
   const { group } = launchGroup(st, id);
   if (!group) return false;
   for (const j of group) {
     const at = locate(st, j.id)!;
     if (at.slot >= 0) st.slots[at.slot] = null;
-    else st.cols[at.col].shift();
-    j.rope = -1;
+    else st.cols[at.col].splice(at.depth, 1);
+    j.link = -1;
     st.pending.push(j);
     st.launches++;
     emit(st, { k: 'launch', id: j.id, slot: at.slot, col: at.col });
@@ -227,7 +245,7 @@ function anyMove(st: State): boolean {
   for (const col of st.cols) {
     const j = col[0];
     if (!j || j.ice > 0) continue;
-    if (j.rope < 0 || frontReady(st, j.rope)) return true;
+    if (j.link < 0 || !linkReady(st, j.link)) return true;
   }
   return false;
 }

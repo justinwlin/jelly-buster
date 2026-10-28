@@ -102,7 +102,7 @@ export function drawJelly(ctx: CanvasRenderingContext2D, x: number, y: number, s
   ctx.save();
   // Keep the feet planted while squashing.
   ctx.translate(x, y + size * 0.06 + (size * 0.7 * sc - h) / 2);
-  if (o.dim) ctx.globalAlpha *= 0.62;
+  if (o.dim) ctx.globalAlpha *= 0.78;
 
   // Ground shadow.
   ctx.fillStyle = 'rgba(30,18,10,0.28)';
@@ -180,6 +180,13 @@ export function drawJelly(ctx: CanvasRenderingContext2D, x: number, y: number, s
   ctx.strokeStyle = t.deep;
   bodyPath(ctx, w, h);
   ctx.stroke();
+
+  // Dozing jellies further back get a soft lavender veil instead of going see-through.
+  if (o.dim) {
+    ctx.fillStyle = 'rgba(205,200,240,0.38)';
+    bodyPath(ctx, w, h);
+    ctx.fill();
+  }
 
   // Speculars.
   ctx.fillStyle = 'rgba(255,255,255,0.75)';

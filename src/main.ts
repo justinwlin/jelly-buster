@@ -233,7 +233,7 @@ function levelsScreen() {
 
 const FEATURE_TIPS: Record<Feature, { title: string; text: string }> = {
   ice: { title: 'Frozen jellies', text: 'They thaw after you send out as many jellies as the number on the ice.' },
-  rope: { title: 'Roped jellies', text: 'Tied jellies go out together. Both must be at the front of their columns.' },
+  rope: { title: 'Linked jellies', text: 'Linked jellies go out together, two or three at a time. Every one of them must be free to leave.' },
   hidden: { title: 'Mystery jellies', text: 'Their color stays hidden until they reach the front.' },
   farRope: { title: 'Long ropes', text: 'Some ropes lead off screen. Dig down until both ends are at the front!' },
 };
@@ -336,7 +336,7 @@ function startLevel(i: number) {
       x.scale(dpr, dpr);
       drawJelly(x, 42, 46, 76, '#2f8cff', 20, { ice: 3 });
       box.append(c);
-    } else box.append(jellyCanvas('#2f8cff', 20, 76, false), jellyCanvas('#ff8a1f', 15, 76, false));
+    } else box.append(jellyCanvas('#2f8cff', 20, 76, false), jellyCanvas('#ff8a1f', 15, 76, false), jellyCanvas('#3fcf5c', 10, 76, false));
   } else if (i === 1 && !seen('slots')) {
     showTip('If a jelly comes back and <span class="hl">every slot is full</span>, you lose!', 'top');
     setTimeout(hideTip, 3800);
@@ -363,9 +363,9 @@ function tryLaunch(id: number) {
       toast('Frozen! Send out more jellies');
     } else if (res.why === 'rope') {
       const j = st.cols.flat().find((x) => x.id === id);
-      if (j) view.ropeHint = { a: id, b: j.rope, t: 1.2 };
+      if (j && j.link >= 0) view.ropeHint = { link: j.link, t: 1.2 };
       view.shake = { id, t: 0.35 };
-      toast('Roped: both must be at the front');
+      toast('Linked: free every jelly in the group first');
     } else if (res.why === 'buried') {
       view.shake = { id, t: 0.35 };
     }
@@ -669,7 +669,7 @@ function frame(now: number) {
     }
   } else {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = '#8f857c';
+    ctx.fillStyle = '#9aa8ff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
   }
   requestAnimationFrame(frame);

@@ -143,15 +143,38 @@ describe('engine', () => {
     expect(launchGroup(st, 3).group).not.toBeNull();
   });
 
-  it('roped jellies go out together, only when both are at the front', () => {
-    const cols = [[{ id: 1, color: 0, n: 1, rope: 4 }], [{ id: 3, color: 1, n: 1 }, { id: 4, color: 0, n: 1, rope: 1 }]];
+  it('linked jellies side by side go out together, only when both are free', () => {
+    const cols = [[{ id: 1, color: 0, n: 1, link: 7 }], [{ id: 3, color: 1, n: 1 }, { id: 4, color: 0, n: 1, link: 7 }]];
     const st = newState(level(['00'], cols));
     expect(launchGroup(st, 1).why).toBe('rope');
     launch(st, 3);
     expect(launchGroup(st, 1).group?.map((j) => j.id)).toEqual([1, 4]);
     launch(st, 4);
-    // The tapped jelly leads, its partner follows right behind.
-    expect(st.pending.map((j) => j.id)).toEqual([3, 4, 1]);
+    // Tapping either member sends the whole group, front-most first.
+    expect(st.pending.map((j) => j.id)).toEqual([3, 1, 4]);
+  });
+
+  it('a jelly linked to the one behind it pulls it out too', () => {
+    const cols = [[{ id: 1, color: 0, n: 1, link: 2 }, { id: 2, color: 0, n: 1, link: 2 }, { id: 3, color: 1, n: 1 }]];
+    const st = newState(level(['00'], cols));
+    expect(launch(st, 1)).toBe(true);
+    expect(st.pending.map((j) => j.id)).toEqual([1, 2]);
+    expect(st.cols[0].map((j) => j.id)).toEqual([3]);
+  });
+
+  it('a group of three needs every member free and room on the belt for all of them', () => {
+    const cols = [
+      [{ id: 1, color: 0, n: 1, link: 5 }, { id: 2, color: 0, n: 1, link: 5 }],
+      [{ id: 3, color: 1, n: 1 }, { id: 4, color: 0, n: 1, link: 5 }],
+    ];
+    const st = newState(level(['00'], cols, 5, 4));
+    expect(launchGroup(st, 1).why).toBe('rope');
+    launch(st, 3);
+    expect(launchGroup(st, 2).group?.map((j) => j.id)).toEqual([1, 4, 2]);
+    // A belt of 3 with one jelly already out has no room for all three.
+    const small = newState(level(['00'], cols, 5, 3));
+    launch(small, 3);
+    expect(launchGroup(small, 1).why).toBe('belt');
   });
 
   it('declares stuck when nothing can ever hit again', () => {

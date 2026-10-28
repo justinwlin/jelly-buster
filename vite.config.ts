@@ -20,8 +20,8 @@ export default defineConfig({
         display: 'fullscreen',
         display_override: ['fullscreen', 'standalone'],
         orientation: 'portrait',
-        background_color: '#6e6763',
-        theme_color: '#6e6763',
+        background_color: '#76c3ff',
+        theme_color: '#76c3ff',
         categories: ['games'],
         icons: [
           { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png' },

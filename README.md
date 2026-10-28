@@ -4,7 +4,7 @@ A puzzle game about sending jellies around a conveyor belt so they munch every c
 
 ## How to play
 
-- The picture sits in the middle with a belt looping around it. Tap a jelly at the front of a column to send it onto the belt.
+- The picture sits in the middle with a belt looping around it. Tap a jelly at the front of a column to send it onto the belt. Levels deal the queue into 2 to 5 columns.
 - As it rides around, it shoots the first cube in each row or column it passes, **if that cube is its color**. Each shot uses one of its hits (the number on it).
 - A jelly that runs out of hits pops. One that gets back to the launcher with hits left waits in one of your **5 slots**, and you can send it again later.
 - Once the queue is empty there's nothing left to decide: jellies with hits left keep going round, and waiting ones go back out on their own.
@@ -17,9 +17,9 @@ A puzzle game about sending jellies around a conveyor belt so they munch every c
 | From level | Mechanic |
 |---|---|
 | 8 | **Ice**: the jelly is frozen until you've sent out the number of jellies shown on it. |
-| 14 | **Ropes**: two tied jellies go out together, and both must be at the front of their columns. |
+| 14 | **Links**: 2 or 3 linked jellies (side by side, or one behind the other) go out together once every one of them is free. |
 | 18 | **Mystery**: the jelly's color stays hidden until it reaches the front. |
-| 22 | **Far ropes**: the partner starts below the visible rows, so you dig down to free it. |
+| 22 | **Long ropes**: a linked partner starts below the visible rows, so you dig down to free it. |
 
 ## Levels
 

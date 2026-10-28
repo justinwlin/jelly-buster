@@ -1,12 +1,25 @@
 // Canvas drawing. Static art (background, board, slots, tray) and the cube picture are baked
 // into offscreen layers; jellies, the moving belt and effects are drawn every frame.
 
-import { TUNING, locate, type Jelly, type SimEvent, type State } from '../sim/engine';
+import { TUNING, type Jelly, type SimEvent, type State } from '../sim/engine';
 import { station, trackLength } from '../sim/track';
 import { drawJelly, JELLY_FONT, shade } from './jelly';
 import { computeLayout, stationPos, type Layout, type Pt } from './layout';
 
 export { drawJelly, shade };
+
+/** Scene colors in one place. */
+export const THEME = {
+  skyTop: '#76c3ff',
+  skyMid: '#9aa8ff',
+  skyBottom: '#c3a3f5',
+  beltTop: '#353563',
+  beltBottom: '#44447a',
+  bedTop: '#e3e8f7',
+  bedBottom: '#cfd7ee',
+  fade0: 'rgba(195,163,245,0)',
+  fade1: 'rgba(195,163,245,0.95)',
+};
 
 type Place = 'queue' | 'slot' | 'pending' | 'belt';
 
@@ -89,7 +102,8 @@ export interface View {
   popping: { x: number; y: number; color: string; t: number }[];
   beltFlash: number;
   shake: { id: number; t: number } | null;
-  ropeHint: { a: number; b: number; t: number } | null;
+  /** Linked group to highlight after a blocked tap. */
+  ropeHint: { link: number; t: number } | null;
   point: number | null;
   /** Screen shake amplitude in px, decays. */
   quake: number;
@@ -442,28 +456,50 @@ function bakeBg(v: View) {
   c.height = Math.round(l.H * dpr);
   const ctx = c.getContext('2d')!;
   ctx.scale(dpr, dpr);
-  // Warm studio backdrop with a soft vignette and faint polka dots.
-  const g = ctx.createRadialGradient(l.W / 2, l.H * 0.35, 0, l.W / 2, l.H * 0.4, Math.max(l.W, l.H) * 0.8);
-  g.addColorStop(0, '#b3a89d');
-  g.addColorStop(0.6, '#8f857c');
-  g.addColorStop(1, '#5f5751');
+  // Candy sky: blue fading to lavender, a soft glow behind the board, light diagonal
+  // stripes and a few bokeh dots.
+  const g = ctx.createLinearGradient(0, 0, 0, l.H);
+  g.addColorStop(0, THEME.skyTop);
+  g.addColorStop(0.55, THEME.skyMid);
+  g.addColorStop(1, THEME.skyBottom);
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, l.W, l.H);
-  ctx.fillStyle = 'rgba(255,255,255,0.035)';
-  for (let y = 0; y < l.H; y += 26)
-    for (let x = (y / 26) % 2 ? 13 : 0; x < l.W; x += 26) {
-      ctx.beginPath();
-      ctx.arc(x, y, 3, 0, Math.PI * 2);
-      ctx.fill();
-    }
+  const glow = ctx.createRadialGradient(l.frame.x + l.frame.w / 2, l.frame.y + l.frame.h / 2, 0, l.frame.x + l.frame.w / 2, l.frame.y + l.frame.h / 2, Math.max(l.frame.w, l.frame.h) * 0.85);
+  glow.addColorStop(0, 'rgba(255,255,255,0.35)');
+  glow.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, l.W, l.H);
+  ctx.save();
+  ctx.globalAlpha = 0.06;
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 18;
+  for (let x = -l.H; x < l.W; x += 64) {
+    ctx.beginPath();
+    ctx.moveTo(x, l.H);
+    ctx.lineTo(x + l.H, 0);
+    ctx.stroke();
+  }
+  ctx.restore();
+  for (let i = 0; i < 14; i++) {
+    const x = hash(i * 3.1) * l.W;
+    const y = hash(i * 7.7) * l.H;
+    const r = 6 + hash(i * 1.3) * 26;
+    const b = ctx.createRadialGradient(x, y, 0, x, y, r);
+    b.addColorStop(0, 'rgba(255,255,255,0.18)');
+    b.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = b;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
 
   const f = l.frame;
   const lane = l.lane;
   // Board drop shadow.
   ctx.save();
-  ctx.shadowColor = 'rgba(30,15,5,0.45)';
-  ctx.shadowBlur = 24;
-  ctx.shadowOffsetY = 10;
+  ctx.shadowColor = 'rgba(40,30,110,0.35)';
+  ctx.shadowBlur = 28;
+  ctx.shadowOffsetY = 12;
   ctx.fillStyle = '#6b4424';
   rr(ctx, f.x - 7, f.y - 7, f.w + 14, f.h + 14, f.r + 7);
   ctx.fill();
@@ -477,8 +513,8 @@ function bakeBg(v: View) {
   // Belt bed (rubber), inner shadow along the top edge.
   rr(ctx, f.x, f.y, f.w, f.h, f.r);
   const bg = ctx.createLinearGradient(0, f.y, 0, f.y + f.h);
-  bg.addColorStop(0, '#3e322d');
-  bg.addColorStop(1, '#4e413a');
+  bg.addColorStop(0, THEME.beltTop);
+  bg.addColorStop(1, THEME.beltBottom);
   ctx.fillStyle = bg;
   ctx.fill();
   ctx.save();
@@ -508,43 +544,47 @@ function bakeBg(v: View) {
   wood(ctx, ix - 6, iy - 6, iw + 12, ih + 12, f.r * 0.5 + 6, '#e8ad6c', '#b0733a', 7);
   rr(ctx, ix, iy, iw, ih, f.r * 0.5);
   const felt = ctx.createLinearGradient(0, iy, 0, iy + ih);
-  felt.addColorStop(0, '#8d8681');
-  felt.addColorStop(1, '#a39d98');
+  felt.addColorStop(0, THEME.bedTop);
+  felt.addColorStop(1, THEME.bedBottom);
   ctx.fillStyle = felt;
   ctx.fill();
   ctx.save();
   rr(ctx, ix, iy, iw, ih, f.r * 0.5);
   ctx.clip();
-  ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+  ctx.strokeStyle = 'rgba(40,40,90,0.25)';
   ctx.lineWidth = 5;
-  ctx.shadowColor = 'rgba(0,0,0,0.5)';
+  ctx.shadowColor = 'rgba(40,40,90,0.35)';
   ctx.shadowBlur = 8;
   ctx.shadowOffsetY = 3;
   rr(ctx, ix - 3, iy - 3, iw + 6, ih + 6, f.r * 0.5 + 3);
   ctx.stroke();
   ctx.restore();
-  ctx.fillStyle = 'rgba(0,0,0,0.07)';
+  ctx.fillStyle = 'rgba(60,70,130,0.08)';
   for (let y = 0; y < l.gh; y++)
     for (let x = 0; x < l.gw; x++) {
       ctx.beginPath();
       ctx.arc(l.px + (x + 0.5) * l.cs, l.py + (y + 0.5) * l.cs, Math.max(0.8, l.cs * 0.1), 0, Math.PI * 2);
       ctx.fill();
     }
-  // Queue tray.
+  // Queue tray: a frosted glass panel with soft wells under each column.
   const trayY = l.qy - l.qSize * 0.78;
-  const tg = ctx.createLinearGradient(0, trayY, 0, l.H);
-  tg.addColorStop(0, 'rgba(40,25,15,0.28)');
-  tg.addColorStop(1, 'rgba(40,25,15,0.1)');
-  ctx.fillStyle = tg;
-  ctx.fillRect(l.panelX, trayY, l.panelW, l.H - trayY);
-  ctx.fillStyle = 'rgba(255,255,255,0.12)';
-  ctx.fillRect(l.panelX, trayY, l.panelW, 2);
-  ctx.fillStyle = 'rgba(0,0,0,0.18)';
-  ctx.fillRect(l.panelX, trayY + 2, l.panelW, 3);
+  const tx = l.panelX + 8;
+  const tw = l.panelW - 16;
+  ctx.save();
+  ctx.shadowColor = 'rgba(40,30,110,0.18)';
+  ctx.shadowBlur = 16;
+  ctx.fillStyle = 'rgba(255,255,255,0.26)';
+  rr(ctx, tx, trayY, tw, l.H - trayY + 30, 28);
+  ctx.fill();
+  ctx.restore();
+  ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+  ctx.lineWidth = 2;
+  rr(ctx, tx, trayY, tw, l.H - trayY + 30, 28);
+  ctx.stroke();
   for (const x of l.qx) {
     const lg = ctx.createLinearGradient(0, trayY, 0, l.qBottom);
-    lg.addColorStop(0, 'rgba(0,0,0,0.12)');
-    lg.addColorStop(1, 'rgba(0,0,0,0)');
+    lg.addColorStop(0, 'rgba(80,70,170,0.14)');
+    lg.addColorStop(1, 'rgba(80,70,170,0)');
     ctx.fillStyle = lg;
     rr(ctx, x - l.qSize * 0.52, trayY + l.qSize * 0.12, l.qSize * 1.04, l.qBottom - trayY, l.qSize * 0.4);
     ctx.fill();
@@ -711,7 +751,7 @@ function drawTreads(ctx: CanvasRenderingContext2D, v: View) {
   const moving = st.status === 'play' && st.belt.length + st.pending.length > 0;
   const phase = ((v.time * TUNING.hz) / TUNING.sub) % 1;
   const ph = moving || st.belt.length ? phase : (v.time * 1.5) % 1;
-  ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+  ctx.strokeStyle = 'rgba(255,255,255,0.09)';
   ctx.lineWidth = Math.max(2, l.cs * 0.28);
   ctx.lineCap = 'round';
   const half = l.lane * 0.36;
@@ -730,7 +770,7 @@ function drawTreads(ctx: CanvasRenderingContext2D, v: View) {
     ctx.stroke();
   }
   // Direction chevrons painted on the rim between cleats.
-  ctx.strokeStyle = 'rgba(255,230,190,0.16)';
+  ctx.strokeStyle = 'rgba(200,210,255,0.2)';
   ctx.lineWidth = Math.max(2, l.lane * 0.07);
   for (let k = 3; k < L; k += 6) {
     const s = (k + ph) % L;
@@ -821,8 +861,8 @@ function drawLauncher(ctx: CanvasRenderingContext2D, v: View) {
   ctx.shadowBlur = 8;
   ctx.shadowOffsetY = 4;
   const g = ctx.createLinearGradient(x, y, x, y + h);
-  g.addColorStop(0, '#5b5049');
-  g.addColorStop(1, '#2f2724');
+  g.addColorStop(0, '#5d58b0');
+  g.addColorStop(1, '#2e2a6e');
   ctx.fillStyle = g;
   rr(ctx, x, y, w, h, bs * 0.2);
   ctx.fill();
@@ -953,25 +993,37 @@ function drawPanel(ctx: CanvasRenderingContext2D, v: View) {
   ctx.beginPath();
   ctx.rect(l.panelX, trayY, l.panelW, l.qBottom - trayY);
   ctx.clip();
+  // Links first, so they sit behind the jellies: gooey bridges between neighbors, a long
+  // rope (and an arrow) when the partner is further down.
   const tags: Pt[] = [];
-  for (const col of st.cols)
-    for (const j of col) {
-      if (j.rope < 0 || j.id > j.rope) continue;
-      const a = v.vis.get(j.id);
-      const b = v.vis.get(j.rope);
-      if (!a || !b || !locate(st, j.rope)) continue;
-      const hot = !!v.ropeHint && (v.ropeHint.a === j.id || v.ropeHint.b === j.id);
-      const [top, bot] = a.y <= b.y ? [a, b] : [b, a];
-      drawRope(ctx, top, bot, l.qSize, hot, v.time);
-      if (bot.y > l.qBottom - l.qSize * 0.3) tags.push({ x: bot.x, y: l.qBottom - l.qSize * 0.25 });
+  const groups = new Map<number, { j: Jelly; c: number; d: number }[]>();
+  st.cols.forEach((col, c) => col.forEach((j, d) => j.link >= 0 && groups.set(j.link, [...(groups.get(j.link) ?? []), { j, c, d }])));
+  for (const [link, ms] of groups) {
+    ms.sort((a, b) => a.d - b.d || a.c - b.c);
+    const hot = v.ropeHint?.link === link;
+    for (let i = 1; i < ms.length; i++) {
+      // Tie each member to the nearest one before it.
+      let best = ms[0];
+      for (let k = 0; k < i; k++) if (Math.abs(ms[k].c - ms[i].c) + Math.abs(ms[k].d - ms[i].d) < Math.abs(best.c - ms[i].c) + Math.abs(best.d - ms[i].d)) best = ms[k];
+      const a = v.vis.get(best.j.id);
+      const b = v.vis.get(ms[i].j.id);
+      if (!a || !b) continue;
+      const adjacent = Math.abs(best.c - ms[i].c) + Math.abs(best.d - ms[i].d) === 1;
+      if (adjacent) drawBridge(ctx, a, b, st.lvl.palette[best.j.color], st.lvl.palette[ms[i].j.color], l.qSize, hot, best.d > 0 && ms[i].d > 0);
+      else {
+        const [top, bot] = a.y <= b.y ? [a, b] : [b, a];
+        drawRope(ctx, top, bot, l.qSize, hot, v.time);
+        if (bot.y > l.qBottom - l.qSize * 0.3) tags.push({ x: bot.x, y: l.qBottom - l.qSize * 0.25 });
+      }
     }
+  }
   st.cols.forEach((col) => {
     for (let d = Math.min(col.length - 1, 5); d >= 0; d--) {
       const j = col[d];
       const vis = v.vis.get(j.id);
       if (!vis || vis.hop) continue;
       const front = d === 0;
-      const ready = front && !j.ice && j.rope < 0;
+      const ready = front && !j.ice && j.link < 0;
       const bob = ready ? Math.sin(v.time * 3 + vis.phase * 6) * l.qSize * 0.02 : 0;
       drawJelly(ctx, vis.x + shakeX(v, j.id), vis.y + bob, l.qSize, st.lvl.palette[j.color], j.n, {
         dim: !front,
@@ -984,7 +1036,6 @@ function drawPanel(ctx: CanvasRenderingContext2D, v: View) {
         look: { x: 0, y: -1 },
         glow: v.point === j.id ? v.time : 0,
       });
-      if (j.rope >= 0) drawKnot(ctx, vis.x + l.qSize * 0.36, vis.y - l.qSize * 0.28, l.qSize * 0.12);
     }
   });
   for (const t of tags) {
@@ -1000,24 +1051,61 @@ function drawPanel(ctx: CanvasRenderingContext2D, v: View) {
   ctx.restore();
   // Fade the deep rows into the tray.
   const fade = ctx.createLinearGradient(0, l.qBottom - l.qSize, 0, l.qBottom);
-  fade.addColorStop(0, 'rgba(100,92,86,0)');
-  fade.addColorStop(1, 'rgba(100,92,86,0.92)');
+  fade.addColorStop(0, THEME.fade0);
+  fade.addColorStop(1, THEME.fade1);
   ctx.fillStyle = fade;
   ctx.fillRect(l.panelX, l.qBottom - l.qSize, l.panelW, l.qSize);
 }
 
-function drawKnot(ctx: CanvasRenderingContext2D, x: number, y: number, r: number) {
-  ctx.fillStyle = '#c98a4b';
-  ctx.strokeStyle = '#6b4424';
-  ctx.lineWidth = 2;
+/** A squishy bridge between two linked neighbors, with a band around the middle. */
+function drawBridge(ctx: CanvasRenderingContext2D, a: Pt, b: Pt, ca: string, cb: string, size: number, hot: boolean, dim: boolean) {
+  const t = size * 0.3;
+  ctx.save();
+  if (dim) ctx.globalAlpha = 0.7;
+  ctx.lineCap = 'round';
+  if (hot) {
+    ctx.shadowColor = '#fff6b0';
+    ctx.shadowBlur = size * 0.4;
+  }
+  const g = ctx.createLinearGradient(a.x, a.y, b.x, b.y);
+  g.addColorStop(0.2, shade(ca, -0.15));
+  g.addColorStop(0.8, shade(cb, -0.15));
+  ctx.strokeStyle = g;
+  ctx.lineWidth = t;
   ctx.beginPath();
-  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.moveTo(a.x, a.y);
+  ctx.lineTo(b.x, b.y);
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+  const hg = ctx.createLinearGradient(a.x, a.y, b.x, b.y);
+  hg.addColorStop(0.2, shade(ca, 0.45));
+  hg.addColorStop(0.8, shade(cb, 0.45));
+  ctx.strokeStyle = hg;
+  ctx.lineWidth = t * 0.28;
+  const nx = -(b.y - a.y);
+  const ny = b.x - a.x;
+  const m = Math.hypot(nx, ny) || 1;
+  const off = t * 0.18;
+  const sx = (nx / m) * off * (ny > 0 ? -1 : 1);
+  const sy = (ny / m) * off * (ny > 0 ? -1 : 1);
+  ctx.beginPath();
+  ctx.moveTo(a.x + sx, a.y + sy - off);
+  ctx.lineTo(b.x + sx, b.y + sy - off);
+  ctx.stroke();
+  // Band.
+  const mx = (a.x + b.x) / 2;
+  const my = (a.y + b.y) / 2;
+  const ang = Math.atan2(b.y - a.y, b.x - a.x);
+  ctx.translate(mx, my);
+  ctx.rotate(ang);
+  ctx.fillStyle = hot ? '#ffe28a' : '#f4c56a';
+  ctx.strokeStyle = '#a8701f';
+  ctx.lineWidth = Math.max(1.5, size * 0.03);
+  ctx.beginPath();
+  ctx.roundRect(-t * 0.28, -t * 0.72, t * 0.56, t * 1.44, t * 0.2);
   ctx.fill();
   ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(x - r * 0.6, y - r * 0.2);
-  ctx.lineTo(x + r * 0.6, y + r * 0.2);
-  ctx.stroke();
+  ctx.restore();
 }
 
 function drawRope(ctx: CanvasRenderingContext2D, a: Pt, b: Pt, size: number, hot: boolean, time: number) {

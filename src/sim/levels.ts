@@ -23,8 +23,11 @@ export interface Recipe {
   /** 0..1+: how far out of step the whole deal is with the order colors get uncovered. */
   disorder?: number;
   ice: number;
+  /** Linked groups of neighbors (side by side or one behind the other). */
   ropes: number;
-  /** Ropes whose partner starts below the visible rows. */
+  /** Chance a linked group has 3 jellies instead of 2. */
+  triples?: number;
+  /** Linked pairs whose partner starts below the visible rows. */
   farRopes: number;
   hidden: number;
 }
@@ -32,13 +35,16 @@ export interface Recipe {
 /** How hard level `index` (0-based) is, before the picture's own colors are counted. */
 export function recipe(index: number): Recipe {
   const n = index + 1;
+  // Columns vary level to level, so the queue comes up by twos, threes, fours or fives.
+  const pick = (xs: number[]) => xs[hash32(`columns:${index}`) % xs.length];
   return {
-    columns: n <= 6 ? 2 : n <= 24 ? 3 : 4,
+    columns: n <= 4 ? 2 : n <= 10 ? pick([2, 3, 3]) : n <= 24 ? pick([2, 3, 3, 4]) : pick([2, 3, 4, 4, 5]),
     chunk: n <= 3 ? [30, 50] : n <= 12 ? [15, 40] : n <= 30 ? [10, 30] : [5, 25],
     scramble: Math.min(0.5, 0.05 + n * 0.015),
     blockers: n <= 3 ? 0 : Math.min(8, 1 + Math.floor(n / 6)),
     ice: n < 8 ? 0 : Math.min(4, 1 + Math.floor((n - 8) / 8)),
     ropes: n < 14 ? 0 : Math.min(3, 1 + Math.floor((n - 14) / 10)),
+    triples: n < 26 ? 0 : 0.5,
     farRopes: n < 22 ? 0 : Math.min(2, 1 + Math.floor((n - 22) / 14)),
     hidden: n < 18 ? 0 : Math.min(5, 1 + Math.floor((n - 18) / 6)),
   };
@@ -84,26 +90,29 @@ function chunkSizes(total: number, [lo, hi]: [number, number], rng: Rng): number
 }
 
 /**
- * Can the queue be emptied at all with these ropes? Crossed ropes (A tied below B's
- * column front while B is tied below A's) deadlock, so the builder never makes them.
+ * Can the queue be emptied at all with these links? A group leaves once every member has
+ * only fellow members ahead of it. Crossed links (A tied below B's front while B is tied
+ * below A's) deadlock, so the builder never makes them. Ice is ignored: it always melts.
  */
 export function untangles(columns: JellySpec[][]): boolean {
   const cols = columns.map((c) => c.slice());
+  const ready = (link: number) =>
+    cols.every((c) => {
+      const at = c.findIndex((j) => j.link === link);
+      return at < 0 || c.slice(0, at).every((j) => j.link === link);
+    });
   for (;;) {
     if (cols.every((c) => !c.length)) return true;
     let moved = false;
     for (const c of cols) {
       const j = c[0];
       if (!j) continue;
-      if (j.rope === undefined) {
+      if (j.link === undefined) {
         c.shift();
         moved = true;
-        continue;
-      }
-      const other = cols.find((o) => o[0]?.id === j.rope);
-      if (other) {
-        c.shift();
-        other.shift();
+      } else if (ready(j.link)) {
+        const link = j.link;
+        for (const o of cols) for (let k = o.length - 1; k >= 0; k--) if (o[k].link === link) o.splice(k, 1);
         moved = true;
       }
     }
@@ -211,23 +220,42 @@ export function buildLevel(slot: Slot, r: Recipe, seed: string, attempt = 0): Le
     x.j.ice = Math.max(2, Math.min(ahead(x.d), Math.round(x.d * r.columns * rng.range(0.7, 1.3)) + 1));
   }
 
-  // Ropes: pairs in different columns. Near ropes sit at about the same depth; far ropes
-  // have a partner 3+ rows down so it starts out of view.
-  const free = (j: JellySpec | undefined): j is JellySpec => !!j && j.rope === undefined && !j.ice;
+  // Links: groups of 2–3 neighbors (side by side, or one behind the other in a column)
+  // that leave together. Far links tie a pair whose partner starts 3+ rows down.
+  const free = (j: JellySpec | undefined): j is JellySpec => !!j && j.link === undefined && !j.ice;
+  let nextLink = 0;
   const tie = (far: boolean) => {
-    for (let tries = 0; tries < 40; tries++) {
+    for (let tries = 0; tries < 60; tries++) {
       const a = rng.int(0, r.columns);
-      const b = (a + rng.int(1, r.columns)) % r.columns;
-      const da = rng.int(far ? 0 : 1, Math.max(1, columns[a].length - 1));
-      const db = far ? da + rng.int(3, 5) : da + rng.int(-1, 2);
+      const da = rng.int(0, Math.max(1, columns[a].length - 1));
       const A = columns[a][da];
-      const B = columns[b][db];
-      if (db < 0 || !free(A) || !free(B)) continue;
-      A.rope = B.id;
-      B.rope = A.id;
+      if (!free(A)) continue;
+      const group: { c: number; d: number }[] = [{ c: a, d: da }];
+      if (far) {
+        if (r.columns < 2) return;
+        const b = (a + rng.int(1, r.columns)) % r.columns;
+        const db = da + rng.int(3, 5);
+        if (!free(columns[b][db])) continue;
+        group.push({ c: b, d: db });
+      } else {
+        const size = rng.chance(r.triples ?? 0) ? 3 : 2;
+        while (group.length < size) {
+          const near = group
+            .flatMap((g) => [
+              { c: g.c - 1, d: g.d },
+              { c: g.c + 1, d: g.d },
+              { c: g.c, d: g.d + 1 },
+            ])
+            .filter((p) => p.c >= 0 && p.c < r.columns && free(columns[p.c][p.d]) && !group.some((g) => g.c === p.c && g.d === p.d));
+          if (!near.length) break;
+          group.push(rng.pick(near));
+        }
+        if (group.length < 2) continue;
+      }
+      const id = nextLink++;
+      for (const g of group) columns[g.c][g.d].link = id;
       if (untangles(columns)) return;
-      delete A.rope;
-      delete B.rope;
+      for (const g of group) delete columns[g.c][g.d].link;
     }
   };
   for (let i = 0; i < r.ropes; i++) tie(false);

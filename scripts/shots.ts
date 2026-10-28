@@ -51,15 +51,20 @@ for (const [name, opts] of Object.entries(profiles)) {
   await page.waitForTimeout(2600);
   await shot('win');
   // A level with ice and ropes.
-  await z(page, 'z.save().unlocked = 99; z.start(29)');
+  await z(page, 'z.save().unlocked = 99; z.start(26)');
   await page.waitForTimeout(800);
   await shot('mechanics-tip');
   await page.click('[data-act="ok"]', { force: true }).catch(() => {});
   await page.waitForTimeout(400);
   await shot('mechanics');
+  await z(page, 'z.start(30)');
+  await page.waitForTimeout(700);
+  await shot('five-columns');
+  await z(page, 'z.start(26)');
+  await page.waitForTimeout(500);
   await autoplay(page, 5);
   await shot('mechanics-later');
-  await z(page, `const s = z.state(); s.slots = s.slots.map((j, i) => j ?? { id: 900 + i, color: 0, n: 5, ice: 0, rope: -1, hidden: false });`);
+  await z(page, `const s = z.state(); s.slots = s.slots.map((j, i) => j ?? { id: 900 + i, color: 0, n: 5, ice: 0, link: -1, hidden: false });`);
   await autoplay(page, 1);
   await page.waitForTimeout(9000);
   await shot('lose');

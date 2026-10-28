@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import campaign from '../src/levels/campaign.json';
 import { playBot } from '../src/sim/bots';
 import type { Level } from '../src/sim/engine';
-import { buildLevel, campaign as slots, GEN_VERSION, needBand, recipe, type Check } from '../src/sim/levels';
+import { buildLevel, campaign as slots, GEN_VERSION, needBand, recipe, untangles, type Check } from '../src/sim/levels';
 import { PACKS } from '../src/sim/pictures';
 import { COLORS } from '../src/sim/art';
 
@@ -44,16 +44,20 @@ describe('campaign.json', () => {
     }
   });
 
-  it('ropes pair up across columns', () => {
+  it('links tie 2–3 jellies and the queue can always be untangled', () => {
     for (const l of LEVELS) {
-      const all = l.columns.flatMap((c, ci) => c.map((j) => ({ ...j, ci })));
-      for (const j of all) {
-        if (j.rope === undefined) continue;
-        const p = all.find((x) => x.id === j.rope)!;
-        expect(p.rope, l.id).toBe(j.id);
-        expect(p.ci, l.id).not.toBe(j.ci);
+      const groups = new Map<number, { c: number; d: number }[]>();
+      l.columns.forEach((col, c) => col.forEach((j, d) => j.link !== undefined && groups.set(j.link, [...(groups.get(j.link) ?? []), { c, d }])));
+      for (const g of groups.values()) {
+        expect(g.length, l.id).toBeGreaterThanOrEqual(2);
+        expect(g.length, l.id).toBeLessThanOrEqual(3);
       }
+      expect(untangles(l.columns), l.id).toBe(true);
     }
+  });
+
+  it('column counts vary across the campaign', () => {
+    expect(new Set(LEVELS.map((l) => l.columns.length)).size).toBeGreaterThanOrEqual(3);
   });
 
   it('every level is beatable with spare slots and humans usually win', () => {
