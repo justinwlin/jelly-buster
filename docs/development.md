@@ -1,5 +1,7 @@
 # Development guide
 
+Work in progress: [plan-crunch.md](plan-crunch.md) (locked slots, hard levels, bigger jellies, layered pictures) is paused about half built on the `justin/crunch` branch.
+
 ## Setup
 
 ```bash
