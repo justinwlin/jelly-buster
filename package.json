@@ -14,7 +14,8 @@
     "shots": "tsx scripts/shots.ts",
     "icons": "tsx scripts/icons.ts",
     "levels": "tsx scripts/build-levels.ts",
-    "layout": "tsx scripts/layout-audit.ts"
+    "layout": "tsx scripts/layout-audit.ts",
+    "og": "tsx scripts/og-image.ts"
   },
   "devDependencies": {
     "@fontsource/baloo-2": "^5.3.0",

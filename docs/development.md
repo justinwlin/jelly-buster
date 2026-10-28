@@ -46,6 +46,7 @@ The public URL is then `https://$RUNPOD_POD_ID-3002.proxy.runpod.net`.
 | `npx tsx scripts/shots-boosters.ts` | Screenshots of the boosters and lives screens into `e2e-out/boost-*.png`. |
 | `npx tsx scripts/art-preview.ts critters` | Contact sheet of a picture pack, saved to `e2e-out/art-critters.png`. |
 | `npx tsx scripts/montage.ts out.png 4 300 a.png b.png …` | Combines screenshots into one image for quick review. |
+| `npm run og` | Re-renders the link-preview card `public/og.jpg` (1200×630) for iMessage, Instagram and other apps (`scripts/og-image.ts`). The `og:` and `twitter:` tags in `index.html` point at it by absolute URL. |
 | `npm run icons` | Re-renders the app icons with the game's own jelly renderer (`scripts/icons.ts`). |
 
 ## Adding pictures
