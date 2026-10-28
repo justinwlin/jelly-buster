@@ -19,15 +19,16 @@ function sprite(color: string): HTMLCanvasElement {
   const x = c.getContext('2d')!;
   const px = (a: number, b: number, w: number, h: number, fill: string) => { x.fillStyle = fill; x.fillRect(a, b, w, h); };
   const dark = tint(color, -0.3), light = tint(color, 0.34);
-  // Rounded crown and wide cheeks; the body is nearly square below the stem.
+  // Rounded lower corners and fuller cheeks, following the saved reference.
   px(9, 5, 6, 1, INK); px(7, 6, 10, 1, INK); px(6, 7, 12, 1, INK);
-  px(5, 8, 14, 2, INK); px(4, 10, 16, 9, INK);
-  px(5, 19, 14, 1, INK); px(7, 20, 10, 1, INK);
-  px(8, 6, 8, 1, color); px(7, 7, 10, 1, color); px(6, 8, 12, 2, color);
-  px(5, 10, 14, 8, color); px(6, 18, 12, 1, dark); px(7, 19, 10, 1, dark);
-  px(8, 8, 6, 2, light); px(7, 10, 3, 1, light); px(15, 8, 2, 2, light);
+  px(5, 8, 14, 1, INK); px(4, 9, 16, 1, INK); px(3, 10, 18, 7, INK);
+  px(4, 17, 16, 1, INK); px(5, 18, 14, 1, INK); px(7, 19, 10, 1, INK);
+  px(9, 6, 6, 1, color); px(7, 7, 10, 1, color); px(6, 8, 12, 1, color);
+  px(5, 9, 14, 1, color); px(4, 10, 16, 7, color);
+  px(5, 17, 14, 1, dark); px(7, 18, 10, 1, dark);
+  px(8, 8, 8, 2, light); px(6, 10, 3, 1, light); px(16, 9, 2, 2, light);
   px(8, 7, 2, 1, '#fff'); px(12, 8, 3, 1, '#fff');
-  px(7, 15, 1, 1, dark); px(16, 16, 1, 1, dark);
+  px(6, 15, 1, 1, dark); px(17, 15, 1, 1, dark);
   sprites.set(color, c);
   return c;
 }
@@ -62,11 +63,22 @@ export function drawJunimo(ctx: CanvasRenderingContext2D, x: number, y: number, 
     px(side < 0 ? 2 : 21, 5 + arm, 1, 2, INK);
   }
   const step = Math.sin(t * 9) > 0.55 ? 1 : 0;
-  px(7, 20 + step, 3, 2, INK); px(14, 21 - step, 3, 1 + step, INK);
+  px(7, 19 + step, 3, 2, INK); px(14, 20 - step, 3, 1 + step, INK);
   ctx.drawImage(sprite(base), 0, 0);
-  // A short sprout sways a pixel to either side.
-  px(11, 1, 2, 5, INK); px(11, 0, 1, 1, tint(base, 0.25));
-  px(12 + leaf, 1, 3, 1, '#6dbf54'); px(13 + leaf, 0, 2, 1, '#a4d96b');
+  // A tiny colored tip and cross-shaped twig, like the reference's sprout.
+  px(11, 1, 2, 5, INK); px(9 + leaf, 3, 6, 1, INK);
+  px(11, 0, 2, 1, tint(base, 0.2));
+
+  if (o.ice && o.ice > 0) {
+    // Faceted frost follows the rounded body rather than boxing it in.
+    px(6, 7, 12, 2, 'rgba(202,246,255,0.42)');
+    px(4, 10, 2, 6, 'rgba(135,220,247,0.4)');
+    px(18, 10, 2, 6, 'rgba(135,220,247,0.4)');
+    px(6, 17, 12, 1, 'rgba(125,217,246,0.45)');
+    px(5, 9, 3, 1, '#d6f8ff'); px(8, 8, 2, 1, '#f5fdff');
+    px(16, 10, 1, 3, '#d6f8ff'); px(15, 12, 3, 1, '#d6f8ff');
+    px(7, 15, 1, 2, '#c4f3ff'); px(8, 16, 2, 1, '#c4f3ff');
+  }
 
   if ((o.face ?? false) && !o.hidden) {
     const closed = o.blink || o.mood === 'sleep' || o.mood === 'happy';
@@ -94,11 +106,9 @@ export function drawJunimo(ctx: CanvasRenderingContext2D, x: number, y: number, 
     px(2, 4 + sparkle, 2, 1, '#fff6a8'); px(20, 7 - sparkle, 2, 1, '#fff6a8');
   }
   if (o.ice && o.ice > 0) {
-    ctx.fillStyle = 'rgba(170,225,250,0.5)'; ctx.fillRect(5, 7, 14, 13);
-    ctx.strokeStyle = '#fff'; ctx.lineWidth = 0.8; ctx.strokeRect(5, 7, 14, 13);
-    ctx.fillStyle = '#2f8fd0'; ctx.beginPath(); ctx.arc(18, 7, 3, 0, Math.PI * 2); ctx.fill();
+    px(19, 5, 3, 1, '#9be8fb'); px(18, 6, 5, 3, '#2f8fd0'); px(19, 9, 3, 1, '#176baf');
     ctx.font = '800 4px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#fff'; ctx.fillText(String(o.ice), 18, 7.3);
+    ctx.fillStyle = '#fff'; ctx.fillText(String(o.ice), 20.5, 7.4);
   }
   ctx.restore();
 }

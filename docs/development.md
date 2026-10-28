@@ -35,6 +35,8 @@ The public URL is then `https://$RUNPOD_POD_ID-3002.proxy.runpod.net`.
 | `scripts/` | Level builder, sim report, e2e, screenshots, icons and art previews. |
 | `tests/` | Vitest: rule tests, plus checks that every shipped level is valid and beatable. |
 
+Junimo art reference: [reference/junimo-green.png](reference/junimo-green.png). Keep its rounded body, raised twig arms, cross-shaped sprout and tiny feet when refining the pixel skin. Frozen Junimos use faceted frost around the body, leaving the face and hit count readable.
+
 ## Commands
 
 | Command | What it does |
