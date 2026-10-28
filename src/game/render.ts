@@ -1368,7 +1368,7 @@ function drawPanel(ctx: CanvasRenderingContext2D, v: View) {
 export const SLOT_KEYS = '123456789';
 export const COL_KEYS = 'QWERT';
 
-/** Little keycaps on the corner of every slot jelly and queue front. */
+/** Put desktop shortcuts above the left shoulder, clear of the count badge. */
 function drawKeys(ctx: CanvasRenderingContext2D, v: View) {
   const { l, st } = v;
   const cap = (x: number, y: number, k: string, size: number) => {
@@ -1389,10 +1389,10 @@ function drawKeys(ctx: CanvasRenderingContext2D, v: View) {
     ctx.fillText(k, x, y + s * 0.06);
   };
   st.slots.forEach((j, i) => {
-    if (j && i < SLOT_KEYS.length && i < l.slots.length && !v.vis.get(j.id)?.hop) cap(l.slots[i].x + l.slotSize * 0.4, l.slots[i].y + l.slotSize * 0.4, SLOT_KEYS[i], l.slotSize);
+    if (j && i < SLOT_KEYS.length && i < l.slots.length && !v.vis.get(j.id)?.hop) cap(l.slots[i].x - l.slotSize * 0.4, l.slots[i].y - l.slotSize * 0.4, SLOT_KEYS[i], l.slotSize);
   });
   st.cols.forEach((col, c) => {
-    if (col.length && c < COL_KEYS.length) cap(l.qx[c] + l.qSize * 0.4, l.qy + l.qSize * 0.34, COL_KEYS[c], l.qSize);
+    if (col.length && c < COL_KEYS.length) cap(l.qx[c] - l.qSize * 0.4, l.qy - l.qSize * 0.4, COL_KEYS[c], l.qSize);
   });
 }
 
