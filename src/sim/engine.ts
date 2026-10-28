@@ -44,6 +44,8 @@ export interface Level {
   columns: JellySpec[][];
   slots: number;
   belt: number;
+  /** Stations between a jelly's shots (defaults to TUNING.reload). Higher = fewer hits per lap. */
+  reload?: number;
 }
 
 export interface Jelly {
@@ -315,7 +317,7 @@ export function step(st: State) {
       emit(st, { k: 'park', id: r.j.id, slot: free });
       continue;
     }
-    if (s - r.last < TUNING.reload) continue;
+    if (s - r.last < (st.lvl.reload ?? TUNING.reload)) continue;
     const at = station(w, h, s);
     if (at.side < 0) continue;
     const i = firstInLine(st.cells, w, h, at);

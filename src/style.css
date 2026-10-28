@@ -162,3 +162,7 @@ button { font-family: var(--font); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
 }
+
+.ff { position: fixed; right: 12px; top: calc(86px + env(safe-area-inset-top)); z-index: 3; pointer-events: none; padding: 4px 12px 5px; border-radius: 999px;
+  font-size: 15px; font-weight: 800; color: #fff; background: linear-gradient(#ff9ad0, #e2489a); box-shadow: 0 3px 0 #9c1b62; animation: ffPulse 0.9s ease-in-out infinite; }
+@keyframes ffPulse { 50% { transform: scale(1.07); } }

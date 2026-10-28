@@ -22,7 +22,7 @@ The public URL is then `https://$RUNPOD_POD_ID-3002.proxy.runpod.net`.
 |---|---|
 | `src/sim/engine.ts` | The rules. Deterministic and integer-only: the belt, firing, slots, ice, ropes, win and lose. |
 | `src/sim/track.ts` | The belt as a list of stations around the picture, and line-of-sight. |
-| `src/sim/bots.ts` | Headless players (`random`, `greedy`, `human`, `smart`) used for tuning and level checks. |
+| `src/sim/bots.ts` | Headless players (`spam`, `random`, `greedy`, `human`, `smart`) used for tuning and level checks. |
 | `src/sim/levels.ts` | Turns a picture into a level: cubes, then jellies dealt into columns, then mechanics. It also searches for a deal that passes the bot checks. |
 | `src/sim/pictures/` | The picture packs: hand-drawn pixel art in palette letters. |
 | `src/levels/campaign.json` | The built levels the game ships. Generated; don't edit it by hand. |
@@ -60,21 +60,22 @@ To add a new pack, create the file and list it in `src/sim/pictures/index.ts`.
 
 1. **Picture to cubes.** Each letter becomes a cube color.
 2. **Jellies.** Each color's cubes are split into jellies (multiples of 5). They're ordered by when their cubes get uncovered, peeling the picture from the outside in.
-3. **Deal.** The jellies are dealt into 2–4 columns, then made harder:
+3. **Deal.** The jellies are dealt into 2–5 columns (it varies per level), then made harder:
    - a little scrambling;
    - *blockers*: jellies of an inner color, dealt early, so you have to park them while you dig;
    - ice;
-   - ropes;
+   - links: groups of 2–3 neighbors that leave together;
    - hidden colors.
-4. **Check.** The bots play each candidate deal:
+4. **Harden against spam** (from level 7). `harden()` keeps swapping jellies in the queue, one near the front and one anywhere. It keeps a swap when the `spam` bot (it hammers the queue fronts as fast as it can) does no better, *and* a careful player who only sends colors that are showing still wins every time. It stops once spam is at the level's target.
+5. **Check.** The bots play the deal:
    - `need`: the fewest slots the lookahead bot needs to win.
    - `human`: wins out of 3 for a bot that reacts slower and sometimes picks a worse jelly.
-   - `random`: wins out of 6 for a bot that taps anything.
-5. **Accept or retry.** The builder tries up to 16 deals per picture, gentlest first. Later attempts add more decoys (small jellies of inner colors dealt early) and more disorder. It ships the first deal that is both of these:
+   - `spam`: wins out of 8 for the queue-spamming bot.
+6. **Accept or retry.** The builder tries, gentlest first: the base deal, then more and smaller jellies, then *reload 2*, where a jelly skips a station after each shot, so it hits less per lap and comes back more often. It ships the first deal that is both of these:
    - **Beatable with margin:** `need` ≤ 3 of 5 slots for the first 12 levels, ≤ 4 after that, and the human-like bot wins at least 2 of 3.
-   - **Interesting:** random tapping wins no more often than the level's target. The target is 6/6 for the first levels, then 5, 4, 3, and 2 in the encore (`randomCap` in `src/sim/levels.ts`).
+   - **Interesting:** spam wins no more often than the level's target. The target is 8/8 (no requirement) for the first 6 levels, then 6, 5, 4, and 3 in the encore (`spamCap` in `src/sim/levels.ts`).
 
-   If no deal is interesting, it ships the beatable deal random tapping does worst on. It never ships one that fails the margin.
+   If no deal is interesting, it ships the beatable deal spam does worst on. It never ships one that fails the margin.
 
 ### What the simulation taught us
 
@@ -82,6 +83,8 @@ To add a new pack, create the file and list it in `src/sim/pictures/index.ts`.
 - **Big flat two-color pictures are always easy.** Every jelly is useful almost all the time, so they work as breathers and early levels.
 - **Inner details make a picture punishing.** Eyes, seeds, windows and other inner colors, split into small jellies and dealt early, punish careless taps. They fill slots while a careful player sends the jelly whose color is showing.
 - **Crossed ropes deadlock.** If A is tied to a jelly below B's front and B to one below A's, nobody can win. The builder rejects any rope layout the queue can't untangle (`untangles()`).
+- **Spamming only loses when jellies come back.** The spam bot's slots rarely got past 2 of 5, because most jellies found enough cubes in one lap and popped. What makes spamming fail is jellies that return: fewer hits per lap (reload), queue fronts whose colors aren't ready yet, and enough jellies that 5 belt places plus 5 slots can't hold them all.
+- **Small, open pictures stay easy.** Pictures with few jellies (around 11–13) and colors showing everywhere (Bee, Gem) can't be made spam-proof without bullying. They stay as breathers.
 - **Ice can deadlock too.** Ice is capped at the number of jellies dealt ahead of it. Re-sending slot jellies also melts ice, so a frozen front with jellies in slots isn't treated as stuck.
 
 `tests/levels.test.ts` re-checks the margin rules on every `npm test`, and spot-replays a few levels.

@@ -38,7 +38,7 @@ Every level is checked before it ships. `npm run levels` turns each picture into
 
 - It's winnable with spare slots: a lookahead bot needs at most 3 of 5 slots early on, and at most 4 later.
 - A human-like bot (slower, sometimes picks wrong) wins at least 2 of 3 tries.
-- It isn't beaten by random tapping more often than the level's target allows.
+- Blind spamming of the queue doesn't win more often than the level's target allows. The queue order is searched to make spamming fail, while a careful player still always wins.
 
 See [docs/development.md](docs/development.md) for how it works.
 

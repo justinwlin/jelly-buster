@@ -22,6 +22,7 @@ const hud = $('hud');
 const screen = $('screen');
 const tipEl = $('tip');
 const toastEl = $('toast');
+const ffEl = $('ff');
 
 let save: Save = load();
 setSound(save.settings.sound);
@@ -33,6 +34,9 @@ let levelIndex = 0;
 let acc = 0;
 let last = performance.now();
 let tutorial: 'tap' | 'slot' | null = null;
+/** Sim speed multiplier; ramps up to FAST when the jellies are on autopilot. */
+let speed = 1;
+const FAST = 3;
 /** Title-screen attract mode: a level playing itself behind the menu. */
 let demo: { st: State; view: View; wait: number; next: number } | null = null;
 
@@ -176,6 +180,7 @@ function toTitle() {
   st = null;
   view = null;
   hud.classList.add('hidden');
+  ffEl.classList.add('hidden');
   hideTip();
   if (!demo) startDemo();
   const next = Math.min(save.unlocked, LEVELS.length - 1);
@@ -303,6 +308,7 @@ function startLevel(i: number) {
   mode = 'play';
   acc = 0;
   lastPct = -1;
+  speed = 1;
   streaks.clear();
   chain = { n: 0, at: -99, level: 0 };
   hideScreen();
@@ -629,8 +635,12 @@ function frame(now: number) {
   last = now;
   const h = 1 / TUNING.hz;
   if (st && view) {
+    // Once the queue is empty the jellies play themselves, so fast-forward to the finish.
+    const auto = mode === 'play' && st.status === 'play' && st.cols.every((c) => !c.length);
+    speed += ((auto ? FAST : 1) - speed) * Math.min(1, dt * 3);
+    ffEl.classList.toggle('hidden', speed < 1.3);
     if (mode === 'play') {
-      acc += dt;
+      acc += dt * speed;
       while (acc >= h) {
         step(st);
         handleEvents();
@@ -641,7 +651,7 @@ function frame(now: number) {
       // Keep the belt running for the celebration (no new events matter).
       st.events = [];
     }
-    update(view, mode === 'paused' ? 0 : dt);
+    update(view, mode === 'paused' ? 0 : dt * (mode === 'play' ? speed : 1));
     draw(ctx, view);
   } else if (demo) {
     const d = demo;

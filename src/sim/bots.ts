@@ -1,5 +1,6 @@
 // Headless players used to tune difficulty and to check generated levels are winnable.
 //
+//  spam    hammers the queue fronts as fast as it can, slots only as a last resort
 //  random  taps any legal jelly whenever the belt has room
 //  greedy  sends the jelly whose color has the most cubes exposed right now
 //  smart   tries every legal tap in a cloned game for one lap and picks the best
@@ -9,8 +10,8 @@ import { cloneState, launch, legalLaunches, locate, newState, slotsUsed, stars, 
 import { Rng } from './rng';
 import { exposed, trackLength } from './track';
 
-export type Policy = 'random' | 'greedy' | 'smart' | 'human';
-export const POLICIES: Policy[] = ['random', 'greedy', 'human', 'smart'];
+export type Policy = 'spam' | 'random' | 'greedy' | 'smart' | 'human';
+export const POLICIES: Policy[] = ['spam', 'random', 'greedy', 'human', 'smart'];
 
 export interface BotResult {
   won: boolean;
@@ -23,7 +24,7 @@ export interface BotResult {
   cleared: number;
 }
 
-const REACT: Record<Policy, number> = { random: 30, greedy: 12, smart: 6, human: 36 };
+const REACT: Record<Policy, number> = { spam: 10, random: 30, greedy: 12, smart: 6, human: 36 };
 
 function colorOf(st: State, id: number) {
   const at = locate(st, id)!;
@@ -80,6 +81,12 @@ function decide(st: State, policy: Policy, rng: Rng): number | null {
   const idle = !st.belt.length && !st.pending.length;
 
   if (policy === 'random') return rng.pick(legal);
+  if (policy === 'spam') {
+    // Blind spamming: hammer whatever is at the front of the queue, only touching slots
+    // when nothing in the queue can go.
+    const fronts = legal.filter((id) => !fromSlot(st, id));
+    return rng.pick(fronts.length ? fronts : legal);
+  }
 
   if (policy === 'greedy') {
     const ex = exposed(st.cells, st.lvl.w, st.lvl.h);

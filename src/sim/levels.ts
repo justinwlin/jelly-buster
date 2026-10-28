@@ -22,6 +22,8 @@ export interface Recipe {
   blockers: number;
   /** 0..1+: how far out of step the whole deal is with the order colors get uncovered. */
   disorder?: number;
+  /** 0..1: chance each queue row is regrouped so same-color jellies sit side by side. */
+  clump?: number;
   ice: number;
   /** Linked groups of neighbors (side by side or one behind the other). */
   ropes: number;
@@ -29,6 +31,8 @@ export interface Recipe {
   triples?: number;
   /** Linked pairs whose partner starts below the visible rows. */
   farRopes: number;
+  /** Stations between shots; 2 means jellies hit about half as much per lap. */
+  reload?: number;
   hidden: number;
 }
 
@@ -204,6 +208,20 @@ export function buildLevel(slot: Slot, r: Recipe, seed: string, attempt = 0): Le
     seq.splice(Math.min(seq.length, Math.floor(((b + rng.float()) / Math.max(1, blockers.length)) * span)), 0, j);
   });
 
+  // Clumping: regroup neighbors so a row of fronts often shows the same color several
+  // times. Sending them all at once wastes all but the first; careful players pace them.
+  if (r.clump) {
+    const C = r.columns;
+    for (let i = 0; i + C <= seq.length; i += C) {
+      if (!rng.chance(r.clump)) continue;
+      const win = seq.slice(i, i + 2 * C);
+      const count = new Map<number, number>();
+      for (const j of win) count.set(j.color, (count.get(j.color) ?? 0) + 1);
+      win.sort((a, b) => count.get(b.color)! - count.get(a.color)! || a.color - b.color);
+      seq.splice(i, win.length, ...win);
+    }
+  }
+
   const columns: JellySpec[][] = Array.from({ length: r.columns }, () => []);
   let id = 1;
   for (const j of seq) {
@@ -275,6 +293,7 @@ export function buildLevel(slot: Slot, r: Recipe, seed: string, attempt = 0): Le
     columns,
     slots: TUNING.slots,
     belt: TUNING.belt,
+    ...(r.reload && r.reload > 1 ? { reload: r.reload } : {}),
   };
 }
 
@@ -286,9 +305,9 @@ export interface Check {
   tries: number;
   /** Greedy bot (no lookahead) wins out of `tries`. */
   greedy: number;
-  /** Random tapper wins out of `randTries`: a level random taps can beat isn't much of a puzzle. */
-  random: number;
-  randTries: number;
+  /** Queue-spamming bot wins out of `spamTries`: blind spamming shouldn't reliably win. */
+  spam: number;
+  spamTries: number;
   seconds: number;
 }
 
@@ -310,10 +329,52 @@ export function checkLevel(lvl: Level, tries = 3): Check {
     seconds += h.seconds;
     greedy += +playBot(lvl, 'greedy', 21 + t).won;
   }
-  const randTries = 6;
-  let random = 0;
-  for (let t = 0; t < randTries; t++) random += +playBot(lvl, 'random', 31 + t).won;
-  return { need, human, tries, greedy, random, randTries, seconds: seconds / tries };
+  const spamTries = SPAM_TRIES;
+  const spam = spamWins(lvl, spamTries, 31);
+  return { need, human, tries, greedy, spam, spamTries, seconds: seconds / tries };
+}
+
+const SPAM_TRIES = 8;
+
+function spamWins(lvl: Level, n = SPAM_TRIES, seed = 31) {
+  let w = 0;
+  for (let t = 0; t < n; t++) w += +playBot(lvl, 'spam', seed + t).won;
+  return w;
+}
+
+/** A careful player who only sends jellies whose color is showing wins every time. */
+function carefulWins(lvl: Level) {
+  return [1, 2, 3].every((s) => playBot(lvl, 'greedy', s).won);
+}
+
+/**
+ * Re-order the queue against blind spamming: keep swapping jellies (one near the front,
+ * one anywhere) when the spam bot does no better and a careful player still always wins.
+ * Stops once spam wins no more than `target` of its tries.
+ */
+export function harden(lvl: Level, target: number, rng: Rng, iters = 1500): Level {
+  let best = lvl;
+  let score = spamWins(best);
+  for (let it = 0; it < iters && score > target; it++) {
+    const cols = best.columns.map((c) => c.map((j) => ({ ...j })));
+    const a = rng.int(0, cols.length);
+    const b = rng.int(0, cols.length);
+    const da = rng.int(0, Math.min(4, cols[a].length));
+    const db = rng.int(0, cols[b].length);
+    const A = cols[a][da];
+    const B = cols[b][db];
+    if (!A || !B || A === B || A.link !== undefined || B.link !== undefined || A.ice || B.ice) continue;
+    cols[a][da] = B;
+    cols[b][db] = A;
+    if (!untangles(cols)) continue;
+    const cand = { ...best, columns: cols };
+    const sc = spamWins(cand);
+    if (sc <= score && carefulWins(cand)) {
+      best = cand;
+      score = sc;
+    }
+  }
+  return best;
 }
 
 /** Slots the level may need: early levels keep two spare, later ones at least one. */
@@ -321,14 +382,14 @@ export function needBand(index: number, slots = TUNING.slots): [number, number] 
   return [index < 12 ? 1 : 2, index < 12 ? slots - 2 : slots - 1];
 }
 
-/** Most random-tap wins (out of 6) a level may allow and still count as interesting. */
-export function randomCap(index: number): number {
-  return index < 6 ? 6 : index < 15 ? 5 : index < 30 ? 4 : index < 50 ? 3 : 2;
+/** Most spam-bot wins (out of 8) a level may allow and still count as interesting. */
+export function spamCap(index: number): number {
+  return index < 6 ? 8 : index < 15 ? 6 : index < 30 ? 5 : index < 50 ? 4 : 3;
 }
 
-/** Interesting: random tapping doesn't reliably beat it. */
+/** Interesting: blind spamming doesn't reliably beat it. */
 export function interesting(index: number, c: Check): boolean {
-  return c.random <= randomCap(index);
+  return c.spam <= spamCap(index);
 }
 
 /** A check passes when the level is winnable with margin and humans usually win. */
@@ -350,26 +411,27 @@ export interface Built {
  */
 export function searchLevel(slot: Slot, seed = 'jelly'): Built {
   const base = recipe(slot.index + (slot.mirror ? 12 : 0));
-  let fallback: Built | null = null;
-  const ATTEMPTS = 16;
-  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
-    const meaner = attempt / (ATTEMPTS - 1);
-    const r: Recipe = {
-      ...base,
-      blockers: base.blockers + Math.round(meaner * 12),
-      disorder: attempt >= ATTEMPTS / 2 ? 0.1 + 0.15 * meaner : 0,
-      ropes: attempt % 4 === 3 ? 0 : base.ropes,
-      farRopes: attempt % 4 === 3 ? 0 : base.farRopes,
-    };
-    const level = buildLevel(slot, r, seed, attempt);
-    const check = checkLevel(level);
-    if (!passes(slot.index, check)) continue;
-    const built = { level, check, attempts: attempt + 1 };
-    if (interesting(slot.index, check)) return built;
-    if (!fallback || check.random < fallback.check.random) fallback = built;
-  }
-  if (fallback) return fallback;
+  const cap = spamCap(slot.index);
+  const rng = new Rng(hash32(`${seed}:${slot.index}:harden`));
+  // Gentlest first: the base deal, then more and smaller jellies, then slower shots.
+  const variants: Partial<Recipe>[] = [{}, { chunk: [10, 25] }, { chunk: [10, 25], reload: 2 }, { chunk: [5, 20], reload: 2 }];
+  const tries = slot.index < 6 ? variants.slice(0, 1) : slot.index < 15 ? variants.slice(0, 2) : variants;
+  let best: Built | null = null;
+  let attempts = 0;
+  for (const v of tries)
+    for (let k = 0; k < 2; k++) {
+      attempts++;
+      const r: Recipe = { ...base, ...v, ropes: k === 1 && attempts > 4 ? 0 : base.ropes };
+      let level = buildLevel(slot, r, seed, attempts);
+      if (slot.index >= 6) level = harden(level, cap, rng);
+      const check = checkLevel(level);
+      if (!passes(slot.index, check)) continue;
+      const built = { level, check, attempts };
+      if (interesting(slot.index, check)) return built;
+      if (!best || check.spam < best.check.spam) best = built;
+    }
+  if (best) return best;
   const r = { ...base, blockers: 0, ice: 0, ropes: 0, farRopes: 0, hidden: 0, scramble: 0 };
   const level = buildLevel(slot, r, seed, 99);
-  return { level, check: checkLevel(level), attempts: ATTEMPTS + 1 };
+  return { level, check: checkLevel(level), attempts: attempts + 1 };
 }
