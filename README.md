@@ -8,7 +8,7 @@ A puzzle game about sending jellies around a conveyor belt so they munch every c
 
 - The picture sits in the middle with a belt looping around it. Tap a jelly at the front of a column to send it onto the belt. Levels deal the queue into 2 to 5 columns.
 - As it rides around, it shoots the first cube in each row or column it passes, **if that cube is its color**. Each shot uses one of its hits (the number on it).
-- A jelly that runs out of hits pops. One that gets back to the launcher with hits left waits in an open slot, and you can send it again later. There are five sockets; later levels start with some locked.
+- A jelly that runs out of hits spins away. One that gets back to the launcher with hits left waits in an open slot, and you can send it again later. There are five sockets; later levels start with some locked.
 - Waiting jellies hop toward the left whenever a slot opens up, so they stay together at the start of the tray.
 - Once the queue is empty there's nothing left to decide: jellies with hits left keep going round, and waiting ones go back out on their own.
 - **If a jelly comes back and every slot is full, you lose.** You can spend coins for one more slot and keep going.

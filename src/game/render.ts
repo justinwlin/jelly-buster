@@ -104,7 +104,8 @@ export interface View {
   popups: Popup[];
   /** Cubes flashing as they pop. */
   flashes: { cell: number; color: string; t: number }[];
-  popping: { x: number; y: number; color: string; t: number }[];
+  /** A finished jelly spinning gently smaller before it disappears. */
+  finishing: { x: number; y: number; color: string; t: number }[];
   beltFlash: number;
   shake: { id: number; t: number } | null;
   /** Linked group to highlight after a blocked tap. */
@@ -157,7 +158,7 @@ export function newView(st: State, W: number, H: number, dpr: number, safeTop = 
     rings: [],
     popups: [],
     flashes: [],
-    popping: [],
+    finishing: [],
     beltFlash: 0,
     shake: null,
     ropeHint: null,
@@ -274,7 +275,7 @@ export function onEvents(v: View, evs: SimEvent[]) {
     } else if (e.k === 'done') {
       const p = vis ? { x: vis.x, y: vis.y } : stationPos(l, e.s);
       const color = st.lvl.palette[v.lastColor.get(e.id) ?? 0];
-      v.popping.push({ ...p, color, t: 0 });
+      v.finishing.push({ ...p, color, t: 0 });
       v.vis.delete(e.id);
     } else if (e.k === 'park') {
       if (vis) {
@@ -477,17 +478,8 @@ export function update(v: View, dt: number) {
   v.shots = v.shots.filter((s) => s.t < s.dur);
   for (const f of v.flashes) f.t += dt;
   v.flashes = v.flashes.filter((f) => f.t < 0.16);
-  for (const p of v.popping) {
-    const before = p.t;
-    p.t += dt;
-    if (before < 0.12 && p.t >= 0.12) {
-      burst(v, p.x, p.y, p.color, 18, l.beltSize * 0.14, 260);
-      burst(v, p.x, p.y, '#ffffff', 6, l.beltSize * 0.06, 200, 'spark');
-      v.rings.push({ x: p.x, y: p.y, t: 0, life: 0.4, r: l.beltSize * 1.1, color: p.color });
-      v.quake = Math.max(v.quake, 3);
-    }
-  }
-  v.popping = v.popping.filter((p) => p.t < 0.2);
+  for (const p of v.finishing) p.t += dt;
+  v.finishing = v.finishing.filter((p) => p.t < 0.55);
   for (const m of v.merging) {
     const before = m.t;
     m.t += dt;
@@ -854,9 +846,14 @@ export function draw(ctx: CanvasRenderingContext2D, v: View) {
   drawFlyers(ctx, v);
   drawAimMarks(ctx, v);
 
-  for (const p of v.popping) {
-    const u = p.t / 0.2;
-    drawJelly(ctx, p.x, p.y, l.beltSize, p.color, '', { scale: 1 + u * 0.5, squash: 0.3 * Math.sin(u * 9), face: true, mood: 'happy' });
+  for (const p of v.finishing) {
+    const u = Math.min(1, p.t / 0.55);
+    const ease = u * u * (3 - 2 * u);
+    ctx.save();
+    ctx.translate(p.x, p.y - Math.sin(u * Math.PI) * l.beltSize * 0.18);
+    ctx.rotate(ease * Math.PI * 2);
+    drawJelly(ctx, 0, 0, l.beltSize, p.color, '', { scale: 1 - ease * 0.99, face: true, mood: 'happy' });
+    ctx.restore();
   }
   for (const r of v.rings) {
     const u = r.t / r.life;

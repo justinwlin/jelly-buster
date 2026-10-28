@@ -168,9 +168,8 @@ export const sfx = {
     tone({ type: 'sine', freq: 190, to: 120, dur: 0.12, vol: 0.18 });
   },
   done() {
-    tone({ type: 'sine', freq: 500, to: 1400, dur: 0.08, vol: 0.14 });
-    [0, 2, 4].forEach((s, i) => tone({ type: 'triangle', freq: note(s + 5, 523.25), dur: 0.28, vol: 0.09, at: 0.04 + i * 0.05 }));
-    noise(0.12, 0.06, 'highpass', 6000, 0.7, 0.03);
+    tone({ type: 'sine', freq: 520, to: 780, dur: 0.24, vol: 0.09 });
+    tone({ type: 'triangle', freq: 1046.5, to: 1174.7, dur: 0.3, vol: 0.045, at: 0.08 });
   },
   deny() {
     tone({ type: 'square', freq: 150, to: 110, dur: 0.11, vol: 0.06, lp: 900 });
