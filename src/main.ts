@@ -2,20 +2,20 @@ import '@fontsource/baloo-2/latin-700.css';
 import '@fontsource/baloo-2/latin-800.css';
 import './style.css';
 import { registerSW } from 'virtual:pwa-register';
-import { launch, launchGroup, legalLaunches, locate, newState, revive, stars, step, TUNING, type Level, type State } from './sim/engine';
+import { launch, launchGroup, legalLaunches, locate, lockedSlots, newState, revive, stars, step, TUNING, type Level, type State } from './sim/engine';
 import { BOOSTER_IDS, BOOSTERS, useBooster, type BoosterId } from './sim/boosters';
 import { newFeature, type Feature } from './sim/levels';
 import { PACKS } from './sim/pictures';
 import { exposed } from './sim/track';
 import campaignData from './levels/campaign.json';
 import { buzz, setMusic, setSound, sfx, unlockAudio } from './game/audio';
-import { confetti, draw, drawJelly, hitTest, newView, onEvents, popup, relayout, update, type View } from './game/render';
+import { confetti, draw, drawJelly, hitLocked, hitTest, newView, onEvents, popup, relayout, shade, update, type View } from './game/render';
 import { load, store, type Save } from './game/save';
 import { drawBoosterIcon } from './game/boosterArt';
 import { uiScale } from './game/layout';
 import {
   boostersOpen, boosterStatus, buyBooster, buyLife, canBuyLife, canPlay, clock, giftBoosters, LIVES, livesApply, loseLife, nextLifeIn, owned,
-  refundLife, REVIVE_COST, reward, spendBooster, syncLives,
+  buySlot, refundLife, REVIVE_COST, reward, slotPrice, spendBooster, syncLives,
 } from './game/economy';
 
 registerSW({ immediate: true });
@@ -301,6 +301,9 @@ function levelsScreen() {
 // ---------------------------------------------------------------- tips
 
 const FEATURE_TIPS: Record<Feature, { title: string; text: string }> = {
+  locked: { title: 'Locked slots', text: 'Some levels start with fewer open slots. Tap a lock to open it with gold, for this level only.' },
+  hard: { title: 'Hard levels', text: 'Every fifth level is a hard one: a tougher deal and fewer open slots, but double gold. Boosters help!' },
+  layers: { title: 'Layered pictures', text: 'Some cubes sit on top of another. Pop the top one and the cube under it shows up. Its color peeks out underneath.' },
   ice: { title: 'Frozen jellies', text: 'They thaw after you send out as many jellies as the number on the ice.' },
   rope: { title: 'Linked jellies', text: 'Linked jellies go out together, two or three at a time. Every one of them must be free to leave.' },
   hidden: { title: 'Mystery jellies', text: 'Their color stays hidden until they reach the front.' },
@@ -459,7 +462,9 @@ function startLevel(i: number) {
       { ok: () => resume() },
     );
     const box = $('feat-j');
-    if (f === 'hidden') box.append(jellyCanvas('#9a96a6', '?', 84, false));
+    if (f === 'locked' || f === 'hard') box.innerHTML = `<span class="feat-emoji">${f === 'locked' ? '🔒' : '🔥'}</span>`;
+    else if (f === 'layers') box.append(layersCanvas());
+    else if (f === 'hidden') box.append(jellyCanvas('#9a96a6', '?', 84, false));
     else if (f === 'ice') {
       const c = document.createElement('canvas');
       const dpr = Math.min(3, window.devicePixelRatio || 1);
@@ -474,6 +479,39 @@ function startLevel(i: number) {
     showTip('If a jelly comes back and <span class="hl">every slot is full</span>, you lose!', 'top');
     setTimeout(hideTip, 3800);
   }
+}
+
+/** Two stacked cubes, as layered pictures draw them, for the "new" tip. */
+function layersCanvas() {
+  const c = document.createElement('canvas');
+  const dpr = Math.min(3, window.devicePixelRatio || 1);
+  c.width = 150 * dpr;
+  c.height = 84 * dpr;
+  c.style.width = '150px';
+  c.style.height = '84px';
+  const x = c.getContext('2d')!;
+  x.scale(dpr, dpr);
+  const cube = (cx: number, cy: number, s: number, col: string) => {
+    x.fillStyle = shade(col, -0.42);
+    x.beginPath();
+    x.roundRect(cx, cy, s, s, s * 0.18);
+    x.fill();
+    x.fillStyle = shade(col, 0.1);
+    x.beginPath();
+    x.roundRect(cx, cy, s, s * 0.84, s * 0.18);
+    x.fill();
+    x.fillStyle = 'rgba(255,255,255,0.4)';
+    x.beginPath();
+    x.roundRect(cx + s * 0.16, cy + s * 0.16, s * 0.34, s * 0.16, s * 0.08);
+    x.fill();
+  };
+  const pairs: [string, string][] = [['#2f8cff', '#ffd21f'], ['#ff3d4f', '#3fcf5c'], ['#9b3df0', '#ff8a1f']];
+  pairs.forEach(([top, under], k) => {
+    const cx = 8 + k * 48;
+    cube(cx, 34, 40, under);
+    cube(cx, 34 - 9, 40, top);
+  });
+  return c;
 }
 
 function resume() {
@@ -564,6 +602,36 @@ function tapBooster(id: BoosterId) {
   sfx.click();
   if (status === 'buy') shopSheet(id);
   else arm(id);
+}
+
+/** Open a locked slot for gold, for the rest of this game. */
+function slotSheet() {
+  if (!st || !view) return;
+  const price = slotPrice(st);
+  const can = save.coins >= price;
+  sfx.click();
+  mode = 'paused';
+  show(
+    `<div class="panel shop">
+      <div class="ribbon">Unlock a slot</div>
+      <div class="feat-emoji">🔓</div>
+      <p>One more spot for jellies to wait in when they come back. It stays open until this level ends.</p>
+      <button class="btn big" data-act="buy" ${can ? '' : 'disabled'}><small>Unlock for this level</small><i class="coin sm"></i> ${price}</button>
+      <p class="hint">You have <i class="coin sm"></i> ${save.coins}</p>
+      <button class="btn ghost" data-act="cancel">Not now</button>
+    </div>`,
+    {
+      buy: () => {
+        if (!st || !view || !buySlot(save, st)) return resume();
+        store(save);
+        sfx.buy();
+        setHud();
+        view.bg = null;
+        resume();
+      },
+      cancel: resume,
+    },
+  );
 }
 
 /** Buying is a deliberate step: pause and show what it does and what it costs. */
@@ -716,6 +784,7 @@ function tryLaunch(id: number) {
 canvas.addEventListener('pointerdown', (e) => {
   unlockAudio();
   if (!view || mode !== 'play') return;
+  if (!aim && hitLocked(view, e.clientX, e.clientY)) return slotSheet();
   const id = hitTest(view, e.clientX, e.clientY);
   if (aim) {
     // Armed booster: a glowing jelly takes it, anything else puts it away.
@@ -818,7 +887,7 @@ function won() {
   hideTip();
   const s = stars(st);
   const lvl = st.lvl;
-  const gold = reward(s);
+  const gold = reward(s, !!lvl.hard);
   const before = save.coins;
   save.coins += gold;
   save.stars[lvl.id] = Math.max(save.stars[lvl.id] ?? 0, s);
@@ -843,7 +912,7 @@ function won() {
         <img class="thumb" src="${thumbUrl(lvl)}" alt="${lvl.name}">
         <h2>${lvl.name}</h2>
         ${hint}
-        <div class="reward" id="reward"><i class="coin"></i><b>+<span id="reward-n">0</span></b></div>
+        <div class="reward" id="reward"><i class="coin"></i><b>+<span id="reward-n">0</span></b>${lvl.hard ? '<em class="x2">Hard ×2</em>' : ''}</div>
         ${hasNext ? '<button class="btn big" data-act="next">Next level</button>' : '<p>You cleared every picture! More packs coming soon.</p>'}
         <button class="btn ghost" data-act="menu">Menu</button>
       </div>`,
@@ -882,7 +951,8 @@ function lost(reason: 'full' | 'stuck') {
   store(save);
   setHud();
   if (costsLife) setTimeout(() => sfx.heart(), 500);
-  const cost = REVIVE_COST * (st.revives + 1);
+  // Continuing opens a locked socket if there is one, at the unlock price.
+  const cost = lockedSlots(st) ? slotPrice(st) : REVIVE_COST * (st.revives + 1);
   const can = reason === 'full' && save.coins >= cost;
   const total = st.lvl.cells.filter((c) => c >= 0).length;
   const pct = Math.round((1 - st.left / total) * 100);
