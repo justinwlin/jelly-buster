@@ -78,6 +78,18 @@ for (const [name, opts] of Object.entries(profiles)) {
   check('progress survives a reload', (await page.textContent('[data-act="play"]'))?.includes('Level 2') ?? false);
   await page.click('[data-act="levels"]', { force: true });
   check('levels screen lists every level', (await page.locator('.lv').count()) === (await z<number>(page, 'return z.levels()')));
+  check('hard levels have a grid badge', await page.locator('.lv.hard').count() === 19);
+
+  // A hard level has locked sockets. Unlocking one costs gold for this attempt.
+  await z(page, 'z.setSave({ coins: 400 }); z.start(9)');
+  check('hard level has a red HUD badge', await page.locator('#hud-level.hard').count() === 1);
+  if (await page.isVisible('[data-act="ok"]')) await page.click('[data-act="ok"]', { force: true });
+  const locked = await z<{ x: number; y: number; slots: number; coins: number }>(page, 'const s = z.state(), v = z.view(); return { ...v.l.slots[s.slots.length], slots: s.slots.length, coins: z.save().coins };');
+  await page.mouse.click(locked.x, locked.y);
+  check('tapping a locked socket opens its price sheet', await page.isVisible('.panel.shop [data-act="buy"]'));
+  await page.click('.panel.shop [data-act="buy"]', { force: true });
+  const unlocked = await z<{ slots: number; coins: number }>(page, 'return { slots: z.state().slots.length, coins: z.save().coins };');
+  check('unlocking adds a slot and spends gold', unlocked.slots === locked.slots + 1 && unlocked.coins === locked.coins - 50);
 
   // A late level with ice, ropes and hidden jellies plays without errors.
   await z(page, 'z.save().unlocked = 99; z.start(29)');

@@ -1,6 +1,6 @@
 # Development guide
 
-Work in progress: [plan-crunch.md](plan-crunch.md) (locked slots, hard levels, bigger jellies, layered pictures) is paused about half built on the `justin/crunch` branch.
+The locked-slot, hard-level, bigger-jelly and layered-picture work is described in [plan-crunch.md](plan-crunch.md).
 
 ## Setup
 
@@ -65,6 +65,7 @@ To add a new pack, create the file and list it in `src/sim/pictures/index.ts`.
 `npm run levels` does the work offline, so the game never ships an unchecked level.
 
 1. **Picture to cubes.** Each letter becomes a cube color.
+   From level 16, some middle cells gain a striped top cube while their original color becomes the under layer. The top cube must be cleared before the under cube can be hit.
 2. **Jellies.** Each color's cubes are split into jellies (multiples of 5). They're ordered by when their cubes get uncovered, peeling the picture from the outside in.
 3. **Deal.** The jellies are dealt into 2–5 columns (it varies per level), then made harder:
    - a little scrambling;
@@ -72,6 +73,7 @@ To add a new pack, create the file and list it in `src/sim/pictures/index.ts`.
    - ice;
    - links: groups of 2–3 neighbors that leave together;
    - hidden colors.
+   Later levels also use bigger jellies that often need more than one lap. The five slot sockets start fully open on levels 1–6, four open from level 7, and usually three open on hard levels (every fifth level from 10). Locked sockets can be opened with gold during an attempt, but the level checker never requires a purchase.
 4. **Harden against spam** (from level 7). `harden()` keeps swapping jellies in the queue, one near the front and one anywhere. It keeps a swap when the `spam` bot (it hammers the queue fronts as fast as it can) does no better, *and* a careful player who only sends colors that are showing still wins every time. It stops once spam is at the level's target.
 5. **Check.** The bots play the deal:
    - `need`: the fewest slots the lookahead bot needs to win.
@@ -79,6 +81,7 @@ To add a new pack, create the file and list it in `src/sim/pictures/index.ts`.
    - `spam`: wins out of 8 for the queue-spamming bot.
    - `boosted`: wins out of 3 for the human-like bot carrying one of each booster.
 6. **Accept or retry.** The builder tries, gentlest first: the base deal, then more and smaller jellies, then bigger jellies (they need more than one lap, so they come back to a slot more often). It ships the first deal that is both of these:
+   The generator is version 4 (`GEN_VERSION`); changing its rules requires a version bump and a fresh `npm run levels`.
    - **Beatable with margin:** `need` ≤ 3 of 5 slots for the first 12 levels and ≤ 4 after that. The human-like bot wins at least 2 of 3. From level 21 it only needs to win 1 of 3, but `boosted` must be 3 of 3.
    - **Interesting:** spam wins no more often than the level's target. The target is 8/8 (no requirement) for the first 6 levels, then 5, 4, 3, and 2 in the encore (`spamCap` in `src/sim/levels.ts`).
 

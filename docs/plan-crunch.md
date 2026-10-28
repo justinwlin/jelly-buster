@@ -1,6 +1,6 @@
 # Plan: more crunch (locked slots, hard levels, bigger jellies, layered pictures)
 
-Status: **paused, about half built.** The work in progress is on the `justin/crunch` branch (commit `4d610c3`), on top of `main` at `f4eb608`. Nothing from it is on `main` yet. Read [development.md](development.md) first for how the game, the simulation and the level builder fit together.
+Status: **implemented and verified.** The four mechanics are in the game, with campaign data rebuilt at `GEN_VERSION = 4`. Read [development.md](development.md) for the current builder and workflow.
 
 ## What Justin asked for
 
@@ -31,7 +31,7 @@ Ideas discussed but **not** picked yet: walls on parts of the belt (jellies ther
   |---|---|
   | 1–6 | 5 |
   | 7 on | 4 |
-  | Hard levels | 3 |
+  | Hard levels | 3, or 4 if only a gentler deal passes the bot checks |
 
 - Tapping a locked socket opens a sheet: "Unlock a slot", the price, Unlock or Not now. The game pauses while the sheet is up.
 - An unlocked slot lasts for this attempt only. A retry starts locked again, which is what keeps it a gold sink.
@@ -45,7 +45,7 @@ Ideas discussed but **not** picked yet: walls on parts of the belt (jellies ther
 
 - `isHard(index)`: every 5th level from level 10 (levels 10, 15, 20, …; index 9, 14, 19, …).
 - A hard level has:
-  - 3 open slots instead of 4;
+  - usually 3 open slots instead of 4, with a four-slot fallback for fairness;
   - a deal hardened like the tough levels: a careful player may lose 1 game in 3;
   - a spam cap one lower than normal (minimum 1);
   - a layer fraction 0.1 higher, but only once layers have started (level 16 on);
@@ -71,64 +71,17 @@ Ideas discussed but **not** picked yet: walls on parts of the belt (jellies ther
 
 `newFeature()` gains `locked` (level 7), `hard` (level 10) and `layers` (level 16), alongside ice (8), rope (14), hidden (18) and farRope (22). Their tip texts are in `FEATURE_TIPS` in `main.ts`. Locked and hard show an emoji; layers shows a small drawing of stacked cubes (`layersCanvas()`).
 
-## Status of the `justin/crunch` branch
+## Completion notes
 
-Done (type-checks and builds):
+- Locked slots, hard levels, larger jellies and layered pictures are implemented in the engine, builder, renderer and game screens.
+- All 100 shipped levels were rebuilt with generator version 4. Every level has enough jelly hits for both picture layers, and the bot checks verify it can be won with the slots already open.
+- Hard levels are marked in the grid and HUD, announced at the start, and pay double gold. All 19 hard levels now start with three or four open slots. Four use a gentler four-slot fallback because a tougher deal did not pass the bot checks.
+- Unlocking a slot costs 50 gold, then 80 gold for the next; it lasts for the attempt. Continuing after running out of room uses a locked socket when available.
+- Unit, browser and layout checks cover the new rules and screens. The optional bot improvement below is deferred because the builder's booster check already grants one unlock and verifies the result.
 
-- **Engine** (`src/sim/engine.ts`):
-  - `Level.under`, `Level.sockets` and `Level.hard`;
-  - `State.under` and `State.unlocks`;
-  - `pop()`, `lockedSlots()` and `unlockSlot()`;
-  - revive counts as an unlock when a locked socket is free.
-- **Level builder** (`src/sim/levels.ts`, `GEN_VERSION = 3`):
-  - `isHard`, `Recipe.open` and `Recipe.layers`;
-  - `coverUp()`, and `peelOrder()` with layers;
-  - bigger chunks;
-  - `needBand(index, open)`, `tough()`, the hard spam cap, the `helped()` boosted check, the new variants, and a fallback that also strips layers and opens all 5 slots.
-- **Economy** (`src/game/economy.ts`): `reward(stars, hard)`, `SLOT_PRICE`, `slotPrice()` and `buySlot()`.
-- **Rendering** (`src/game/render.ts`):
-  - sockets laid out for open plus locked;
-  - locked sockets in darker wood, with a padlock and price tag (`drawLock`, using `View.lockPrice`);
-  - `hitLocked()`;
-  - layered cubes and `picPad`.
-- **Game** (`src/main.ts`):
-  - the three feature tips and `layersCanvas()`;
-  - tapping a lock opens `slotSheet()`;
-  - revive is priced at the unlock price when a socket is locked;
-  - hard levels pay double, with "Hard ×2" on the win screen.
-- **Levels**: `src/levels/campaign.json` was rebuilt with gen 3, 76 of 100 levels on target. Bot results:
+### Optional follow-up
 
-  | Levels | Human-like bot | With kit | Spam bot | Slots needed |
-  |---|---|---|---|---|
-  | 1–25 | 2.9/3 | 3/3 | 4.7/8 | 1.3 |
-  | 26–50 | 2.5/3 | 3/3 | 1.6/8 | 2.1 |
-  | 51–75 | 2.7/3 | 3/3 | 1.8/8 | 1.9 |
-  | 76–100 | 2.9/3 | 3/3 | 2.5/8 | 2.1 |
-  | Hard (19 levels) | 2.9/3 | 3/3 | 2.4/8 | 1.4 |
-
-  - Spam now mostly fails, and a booster kit always wins.
-  - 73 levels have a cover layer.
-  - Open slots across the campaign: 3 open on 14 levels, 4 on 68, and 5 on 18.
-
-Left to do:
-
-1. **`View.lockPrice` is never set.** In `frame()` (or `setHud()`), set `view.lockPrice = slotPrice(st)`, otherwise the price tag on locked sockets doesn't show.
-2. **Hard level UI:**
-   - a red "Hard" badge in the HUD (`.lvl` gets a `hard` class; keep the title from wrapping on a 360px phone, which `npm run layout` checks);
-   - a `.lv.hard` style with a small 🔥 on the level grid;
-   - `popup(view, 'Hard level!', …)` plus `sfx.warn()` when a hard level starts, after any tip panel;
-   - CSS for `.x2` (the "Hard ×2" tag on the reward) and `.feat-emoji` (the big emoji in tips and in the unlock sheet).
-3. **Five of the 19 hard levels fell back to the stripped deal** (all 5 slots open, no mechanics), because nothing tougher passed. Look at those levels in the `npm run levels` output. Options: let hard levels try 4 open slots before stripping everything, or add a gentler hard variant.
-4. **Fix the failing test** in `tests/levels.test.ts`, "every level has exactly enough jelly hits for its cubes, per color". It counts only `cells`; it must also count `under`.
-5. **New tests** (follow `tests/boosters.test.ts`):
-   - engine: popping a layered cell uncovers the under cube in the same cell; `left` counts both layers;
-   - engine: `unlockSlot` / `lockedSlots`, and revive with a locked socket counts as an unlock;
-   - economy: `slotPrice` goes up per unlock; `buySlot` needs the coins and a locked socket; hard levels pay double;
-   - levels: `isHard` for 10, 15, …; open slots per recipe; shipped hard levels have `hard: true`; `need` never exceeds the open slots.
-6. **e2e** (`scripts/e2e.ts`): tap a locked socket on the canvas, buy, check `state().slots.length` went up and coins went down. Also check a hard level shows the badge.
-7. **Screens:** run `npm run layout` and `npx tsx scripts/shots-boosters.ts`. Look at locked sockets, layered cubes (the raised top row must not be clipped at the top of the picture), and the unlock sheet on every profile.
-8. **Docs:** update README "How to play", the mechanics table and "Levels", and the builder section of `development.md` (open slots, hard levels, layers, `GEN_VERSION 3`).
-9. **Bots** (optional): teach `useKit()` in `src/sim/bots.ts` to unlock a slot when tight, instead of the `helped()` shortcut that just opens one slot from the start.
+Teach `useKit()` in `src/sim/bots.ts` to decide when to buy a slot during play, instead of granting one at the start of the boosted check. This would improve the realism of the bot model without changing game rules.
 
 ## Gotchas
 

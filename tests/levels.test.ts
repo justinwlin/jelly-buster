@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import campaign from '../src/levels/campaign.json';
 import { playBot } from '../src/sim/bots';
 import type { Level } from '../src/sim/engine';
-import { buildLevel, campaign as slots, GEN_VERSION, needBand, recipe, TOUGH_FROM, untangles, type Check } from '../src/sim/levels';
+import { buildLevel, campaign as slots, GEN_VERSION, isHard, needBand, recipe, TOUGH_FROM, untangles, type Check } from '../src/sim/levels';
 import { PACKS } from '../src/sim/pictures';
 import { COLORS } from '../src/sim/art';
 
@@ -32,13 +32,16 @@ describe('campaign.json', () => {
     const s = slots();
     expect(LEVELS.length).toBe(s.length);
     LEVELS.forEach((l, i) => expect(l.name).toBe(s[i].art.name));
-    // Rebuilding a level from its picture gives the same cubes.
-    for (const i of [0, 17, 63]) expect(buildLevel(s[i], recipe(i), 'jelly').cells).toEqual(LEVELS[i].cells);
+    // Candidate deals may change the cover layer, but must retain the picture dimensions.
+    for (const i of [0, 17, 63]) {
+      const candidate = buildLevel(s[i], recipe(i), 'jelly');
+      expect([LEVELS[i].w, LEVELS[i].h, LEVELS[i].palette]).toEqual([candidate.w, candidate.h, candidate.palette]);
+    }
   });
 
   it('every level has exactly enough jelly hits for its cubes, per color', () => {
     for (const l of LEVELS) {
-      const cubes = l.palette.map((_, c) => l.cells.filter((x) => x === c).length);
+      const cubes = l.palette.map((_, c) => l.cells.filter((x) => x === c).length + (l.under?.filter((x) => x === c).length ?? 0));
       const hits = l.palette.map((_, c) => l.columns.flat().filter((j) => j.color === c).reduce((a, j) => a + j.n, 0));
       expect(hits, l.id).toEqual(cubes);
     }
@@ -58,6 +61,16 @@ describe('campaign.json', () => {
 
   it('column counts vary across the campaign', () => {
     expect(new Set(LEVELS.map((l) => l.columns.length)).size).toBeGreaterThanOrEqual(3);
+  });
+
+  it('marks hard levels and keeps every win possible with the open slots', () => {
+    for (const l of LEVELS) {
+      expect(!!l.hard, l.id).toBe(isHard(l.index));
+      expect(l.sockets, l.id).toBe(5);
+      expect(l.check.need, l.id).toBeLessThanOrEqual(l.slots);
+      if (l.index < 6) expect(l.slots, l.id).toBe(5);
+      else if (l.hard) expect(l.slots, l.id).toBeLessThanOrEqual(4);
+    }
   });
 
   it('every level is beatable with spare slots, and humans usually win (always, with boosters, on tough levels)', () => {

@@ -11,7 +11,7 @@ import { hash32, Rng } from './rng';
 import { exposed } from './track';
 
 /** Bump when built levels change shape, so saved progress can tell. */
-export const GEN_VERSION = 2;
+export const GEN_VERSION = 4;
 
 export interface Recipe {
   columns: number;
@@ -33,7 +33,14 @@ export interface Recipe {
   /** Linked pairs whose partner starts below the visible rows. */
   farRopes: number;
   hidden: number;
+  /** Slots open at the start (the rest of the 5 sockets are locked, unlockable for gold). */
+  open: number;
+  /** 0..1: share of the picture under a second layer of cubes. */
+  layers: number;
 }
+
+/** Every fifth level from level 10: tougher deal, fewer open slots, double gold. */
+export const isHard = (index: number) => index >= 9 && (index + 1) % 5 === 0;
 
 /** How hard level `index` (0-based) is, before the picture's own colors are counted. */
 export function recipe(index: number): Recipe {
@@ -42,7 +49,8 @@ export function recipe(index: number): Recipe {
   const pick = (xs: number[]) => xs[hash32(`columns:${index}`) % xs.length];
   return {
     columns: n <= 4 ? 2 : n <= 10 ? pick([2, 3, 3]) : n <= 24 ? pick([2, 3, 3, 4]) : pick([2, 3, 4, 4, 5]),
-    chunk: n <= 3 ? [30, 50] : n <= 12 ? [15, 40] : n <= 30 ? [10, 30] : [5, 25],
+    // Bigger jellies later on: they need more than one lap, so they come back to a slot.
+    chunk: n <= 3 ? [30, 50] : n <= 12 ? [15, 40] : n <= 30 ? [15, 35] : [15, 45],
     scramble: Math.min(0.5, 0.05 + n * 0.015),
     blockers: n <= 3 ? 0 : Math.min(8, 1 + Math.floor(n / 6)),
     ice: n < 8 ? 0 : Math.min(4, 1 + Math.floor((n - 8) / 8)),
@@ -50,29 +58,59 @@ export function recipe(index: number): Recipe {
     triples: n < 26 ? 0 : 0.5,
     farRopes: n < 22 ? 0 : Math.min(2, 1 + Math.floor((n - 22) / 14)),
     hidden: n < 18 ? 0 : Math.min(5, 1 + Math.floor((n - 18) / 6)),
+    open: n < 7 ? TUNING.slots : 4,
+    layers: n < 16 ? 0 : Math.min(0.55, 0.2 + (n - 16) * 0.008),
   };
 }
 
-export type Feature = 'ice' | 'rope' | 'hidden' | 'farRope';
+export type Feature = 'locked' | 'ice' | 'hard' | 'rope' | 'layers' | 'hidden' | 'farRope';
 
 /** What level `index` introduces, for the "new!" tip. */
 export function newFeature(index: number): Feature | null {
   const n = index + 1;
-  return n === 8 ? 'ice' : n === 14 ? 'rope' : n === 18 ? 'hidden' : n === 22 ? 'farRope' : null;
+  return n === 7 ? 'locked' : n === 8 ? 'ice' : n === 10 ? 'hard' : n === 14 ? 'rope' : n === 16 ? 'layers' : n === 18 ? 'hidden' : n === 22 ? 'farRope' : null;
 }
 
-/** Cells in the order a sensible player uncovers them: outside layers first. */
-export function peelOrder(cells: number[], w: number, h: number): number[] {
+/**
+ * Cubes in the order a sensible player uncovers them: outside layers first. A layered cell
+ * shows up twice, its top cube and then the one under it.
+ */
+export function peelOrder(cells: number[], w: number, h: number, under: number[] = []): { i: number; color: number }[] {
   const c = cells.slice();
-  const order: number[] = [];
+  const u = under.slice();
+  const order: { i: number; color: number }[] = [];
   for (;;) {
     const layer = [...exposed(c, w, h)].sort((a, b) => a - b);
     if (!layer.length) return order;
     for (const i of layer) {
-      order.push(i);
-      c[i] = -1;
+      order.push({ i, color: c[i] });
+      c[i] = u[i] ?? -1;
+      u[i] = -1;
     }
   }
+}
+
+/**
+ * Layered pictures: wrap the middle of the picture (the cells peeled last) in a striped
+ * cover of two of its own colors. The real picture is underneath and peeks out of each
+ * cube's bottom edge, so it's always visible what comes next.
+ */
+function coverUp(cells: number[], w: number, h: number, frac: number, rng: Rng): { top: number[]; under: number[] } {
+  const under = cells.map(() => -1);
+  const top = cells.slice();
+  if (frac <= 0) return { top, under };
+  const order = peelOrder(cells, w, h);
+  const count = new Map<number, number>();
+  for (const c of cells) if (c >= 0) count.set(c, (count.get(c) ?? 0) + 1);
+  const [a, b = a] = [...count.entries()].sort((x, y) => y[1] - x[1] || x[0] - y[0]).map(([c]) => c);
+  const flip = rng.chance(0.5);
+  for (const { i } of order.slice(Math.round(order.length * (1 - frac)))) {
+    const x = i % w;
+    const y = Math.floor(i / w);
+    under[i] = cells[i];
+    top[i] = ((Math.floor((x + y) / 2) % 2 === 0) !== flip) ? a : b;
+  }
+  return { top, under };
 }
 
 function chunkSizes(total: number, [lo, hi]: [number, number], rng: Rng): number[] {
@@ -164,20 +202,22 @@ export function buildLevel(slot: Slot, r: Recipe, seed: string, attempt = 0): Le
       }
     }
 
+  const { top, under } = coverUp(cells, w, h, r.layers, rng);
+
   // One jelly per chunk of a color's cubes, in the order those cubes get uncovered.
-  const order = peelOrder(cells, w, h);
-  const rank = new Map(order.map((i, k) => [i, k]));
+  const order = peelOrder(top, w, h, under).map((o, k) => ({ ...o, k }));
   const seq: { color: number; n: number; need: number }[] = [];
   // Inner colors (nothing of theirs is reachable at the start) come in small jellies: they
   // are the decoys that punish tapping without looking.
-  const first = letters.map((_, c) => order.findIndex((i) => cells[i] === c));
+  const first = letters.map((_, c) => order.findIndex((o) => o.color === c));
   const innerAt = order.length * 0.15;
   letters.forEach((_, color) => {
-    const list = order.filter((i) => cells[i] === color);
+    const list = order.filter((o) => o.color === color);
+    if (!list.length) return;
     const inner = first[color] > innerAt;
     let at = 0;
     for (const n of chunkSizes(list.length, inner ? [5, Math.max(5, Math.min(10, r.chunk[0]))] : r.chunk, rng)) {
-      seq.push({ color, n, need: rank.get(list[at])! });
+      seq.push({ color, n, need: list[at].k });
       at += n;
     }
   });
@@ -287,11 +327,14 @@ export function buildLevel(slot: Slot, r: Recipe, seed: string, attempt = 0): Le
     name: slot.art.name,
     w,
     h,
-    cells,
+    cells: top,
+    ...(under.some((c) => c >= 0) ? { under } : {}),
     palette: letters.map((l) => COLORS[l]),
     columns,
-    slots: TUNING.slots,
+    slots: r.open,
+    sockets: TUNING.slots,
     belt: TUNING.belt,
+    ...(isHard(slot.index) ? { hard: true } : {}),
   };
 }
 
@@ -329,7 +372,7 @@ export function checkLevel(lvl: Level, tries = 3): Check {
     human += +h.won;
     seconds += h.seconds;
     greedy += +playBot(lvl, 'greedy', 21 + t).won;
-    boosted += +(h.won || playBot(lvl, 'human', 11 + t, 900, KIT).won);
+    boosted += +(h.won || playBot(helped(lvl), 'human', 11 + t, 900, KIT).won);
   }
   const spamTries = SPAM_TRIES;
   const spam = spamWins(lvl, spamTries, 31);
@@ -337,8 +380,10 @@ export function checkLevel(lvl: Level, tries = 3): Check {
 }
 
 const SPAM_TRIES = 8;
-/** What a player who bought a little help carries: one of each booster. */
+/** What a player who bought a little help carries: one of each booster... */
 const KIT: Kit = Object.fromEntries(BOOSTER_IDS.map((id) => [id, 1]));
+/** ...and one locked slot opened with gold, if the level has one. */
+const helped = (lvl: Level): Level => ({ ...lvl, slots: Math.min(lvl.sockets ?? lvl.slots, lvl.slots + 1) });
 /** From here on a level may lean on boosters: a booster-less human only has to win sometimes. */
 export const TOUGH_FROM = 20;
 
@@ -391,14 +436,21 @@ export function harden(lvl: Level, target: number, rng: Rng, iters = 3000, tough
   return best;
 }
 
-/** Slots the level may need: early levels keep two spare, later ones at least one. */
-export function needBand(index: number, slots = TUNING.slots): [number, number] {
-  return [index < 12 ? 1 : 2, index < 12 ? slots - 2 : slots - 1];
+/**
+ * Slots the level may need, out of the `open` ones (locked slots never count): early levels
+ * keep two spare, later and hard ones at least one.
+ */
+export function needBand(index: number, open = TUNING.slots): [number, number] {
+  return [index < 12 ? 1 : 2, Math.max(2, index < 12 && !isHard(index) ? open - 2 : open - 1)];
 }
+
+/** Hard levels and everything from TOUGH_FROM on may lean on boosters. */
+export const tough = (index: number) => isHard(index) || index >= TOUGH_FROM;
 
 /** Most spam-bot wins (out of 8) a level may allow and still count as interesting. */
 export function spamCap(index: number): number {
-  return index < 6 ? 8 : index < 15 ? 5 : index < 30 ? 4 : index < 50 ? 3 : 2;
+  const cap = index < 6 ? 8 : index < 15 ? 5 : index < 30 ? 4 : index < 50 ? 3 : 2;
+  return isHard(index) ? Math.max(1, cap - 1) : cap;
 }
 
 /** Interesting: blind spamming doesn't reliably beat it. */
@@ -414,7 +466,7 @@ export function interesting(index: number, c: Check): boolean {
 export function passes(index: number, c: Check, slots = TUNING.slots): boolean {
   const [, hi] = needBand(index, slots);
   if (c.need > hi) return false;
-  if (index >= TOUGH_FROM) return c.human >= 1 && c.boosted === c.tries;
+  if (tough(index)) return c.human >= 1 && c.boosted === c.tries;
   return c.human * 3 >= c.tries * 2;
 }
 
@@ -431,11 +483,15 @@ export interface Built {
  */
 export function searchLevel(slot: Slot, seed = 'jelly'): Built {
   const base = recipe(slot.index + (slot.mirror ? 12 : 0));
+  if (isHard(slot.index)) {
+    base.open = 3;
+    if (base.layers) base.layers = Math.min(0.65, base.layers + 0.1);
+  }
   const cap = spamCap(slot.index);
   const rng = new Rng(hash32(`${seed}:${slot.index}:harden`));
-  // Gentlest first: the base deal, then more and smaller jellies, then bigger jellies
-  // (which need more than one lap, so they come back to a slot more often).
-  const variants: Partial<Recipe>[] = [{}, { chunk: [10, 25] }, { chunk: [20, 45] }, { chunk: [5, 20] }];
+  // Gentlest first: the base deal, then smaller jellies, a thinner cover layer, then bigger
+  // jellies (which need more than one lap, so they come back to a slot more often).
+  const variants: Partial<Recipe>[] = [{}, { chunk: [10, 30] }, { layers: base.layers / 2 }, { chunk: [20, 50] }, ...(isHard(slot.index) ? [{ open: 4 }] : [])];
   const tries = slot.index < 6 ? variants.slice(0, 1) : slot.index < 15 ? variants.slice(0, 2) : variants;
   let best: Built | null = null;
   let attempts = 0;
@@ -444,15 +500,15 @@ export function searchLevel(slot: Slot, seed = 'jelly'): Built {
       attempts++;
       const r: Recipe = { ...base, ...v, ropes: k === 1 && attempts > 4 ? 0 : base.ropes };
       let level = buildLevel(slot, r, seed, attempts);
-      if (slot.index >= 6) level = harden(level, cap, rng, 3000, slot.index >= TOUGH_FROM);
+      if (slot.index >= 6) level = harden(level, cap, rng, 3000, tough(slot.index));
       const check = checkLevel(level);
-      if (!passes(slot.index, check)) continue;
+      if (!passes(slot.index, check, level.slots)) continue;
       const built = { level, check, attempts };
       if (interesting(slot.index, check)) return built;
       if (!best || check.spam < best.check.spam) best = built;
     }
   if (best) return best;
-  const r = { ...base, blockers: 0, ice: 0, ropes: 0, farRopes: 0, hidden: 0, scramble: 0 };
+  const r = { ...base, blockers: 0, ice: 0, ropes: 0, farRopes: 0, hidden: 0, scramble: 0, layers: 0, open: isHard(slot.index) ? 4 : TUNING.slots };
   const level = buildLevel(slot, r, seed, 99);
   return { level, check: checkLevel(level), attempts: attempts + 1 };
 }

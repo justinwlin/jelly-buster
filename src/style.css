@@ -35,6 +35,8 @@ button { font-family: var(--font); }
 .lvl-wrap { display: flex; flex-direction: column; align-items: center; gap: 5px; }
 .lvl { background: linear-gradient(#5aa2ff, #2f6fe0); border-radius: 999px; padding: 2px 26px 3px; font-size: 21px; font-weight: 800;
   box-shadow: 0 4px 0 var(--blue-d), inset 0 2px 0 rgba(255,255,255,0.35); text-shadow: 0 2px 0 rgba(0,0,0,0.25); }
+.lvl.hard { background: linear-gradient(#ff8181, #df3545); box-shadow: 0 4px 0 #9f2030, inset 0 2px 0 rgba(255,255,255,0.35); }
+.lvl.hard::after { content: ' 🔥 Hard'; font-size: 0.7em; }
 .icon-btn { width: 46px; height: 46px; border-radius: 15px; border: 0; color: #fff; background: linear-gradient(#4a3f9c, #2f2775);
   display: grid; place-items: center; cursor: pointer; box-shadow: inset 0 2px 0 rgba(255,255,255,0.12), 0 3px 0 rgba(0,0,0,0.25); }
 .icon-btn:active { transform: translateY(2px); }
@@ -124,6 +126,8 @@ button { font-family: var(--font); }
 .lv.current { background: linear-gradient(#d9ffd0, #b6efa6); box-shadow: 0 4px 0 #59a64a, inset 0 0 0 2px #8ed37c; animation: pulse 1.6s ease-in-out infinite; }
 .lv.locked { background: #e0d3c2; box-shadow: 0 4px 0 #c3b29c; cursor: default; }
 .lv.locked::after { content: "🔒"; position: absolute; right: 4px; bottom: 2px; font-size: 13px; }
+.lv.hard { box-shadow: 0 4px 0 #b53c45, inset 0 0 0 2px #f4898c; }
+.lv.hard::before { content: '🔥'; position: absolute; right: 2px; top: 1px; font-size: 13px; z-index: 1; }
 .lv:not(.locked):active { transform: translateY(3px); box-shadow: 0 1px 0 #d4b896; }
 
 /* ---------------------------------------------------------------- result */
@@ -136,6 +140,8 @@ button { font-family: var(--font); }
   box-shadow: inset 0 2px 6px rgba(0,0,0,0.15); }
 .reward { display: inline-flex; align-items: center; gap: 8px; font-size: 26px; font-weight: 800; background: #ffeec7; border-radius: 999px; padding: 4px 18px 4px 5px;
   box-shadow: inset 0 -3px 0 rgba(201,138,75,0.25); }
+.reward .x2 { font-size: 14px; font-style: normal; color: #b32f3d; white-space: nowrap; }
+.feat-emoji { display: block; font-size: 64px; line-height: 1.3; margin: 8px auto; }
 .meter { position: relative; height: 26px; border-radius: 999px; background: #ecdcc6; overflow: hidden; margin: 0 0 4px; box-shadow: inset 0 2px 3px rgba(0,0,0,0.15); }
 .meter > div { height: 100%; background: linear-gradient(#a6f08a, #3fb54a); }
 .meter span { position: absolute; inset: 0; display: grid; place-items: center; font-size: 15px; color: var(--ink); }
