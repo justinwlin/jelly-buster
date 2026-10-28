@@ -26,6 +26,8 @@ export interface JellyLook {
   face?: boolean;
   /** Arm wave angle, radians. */
   wave?: number;
+  /** Animation clock; pixel skins use it for subtle limb and leaf motion. */
+  time?: number;
   /** Red flash 0..1 (came back to full slots). */
   alarm?: number;
   /** Open happy mouth (menus and the app icon). */

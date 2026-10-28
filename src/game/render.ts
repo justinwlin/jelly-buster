@@ -1086,6 +1086,7 @@ function drawBeltJellies(ctx: CanvasRenderingContext2D, v: View) {
       blink: blink(v, vis),
       look: look(v, vis.x, vis.y),
       wave: vis.wave * Math.sin(v.time * 30) * 0.6,
+      time: v.time + vis.phase,
       alarm: vis.alarm,
     });
   };
@@ -1119,6 +1120,7 @@ function drawFlyers(ctx: CanvasRenderingContext2D, v: View) {
       blink: blink(v, vis),
       look: { x: 0, y: 1 },
       wave: Math.sin(v.time * 12) * 0.5,
+      time: v.time + vis.phase,
     });
     drawPropeller(ctx, x, y - size * 0.52, size * 0.95, v.time);
   }
@@ -1219,6 +1221,7 @@ function drawSlotJelly(ctx: CanvasRenderingContext2D, v: View, j: Jelly) {
     glow: v.point === j.id || v.aim?.has(j.id) ? v.time : 0,
     dim: !!v.aim && !v.aim.has(j.id),
     alarm: vis.alarm,
+    time: v.time + vis.phase,
   });
 }
 
@@ -1276,6 +1279,7 @@ function drawPanel(ctx: CanvasRenderingContext2D, v: View) {
         blink: front && blink(v, vis),
         look: { x: 0, y: -1 },
         glow: v.point === j.id || v.aim?.has(j.id) ? v.time : 0,
+        time: v.time + vis.phase,
       });
     }
   });

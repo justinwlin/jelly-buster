@@ -139,6 +139,27 @@ function jellyCanvas(color: string, n: number | string, size = 64, face = true, 
   return c;
 }
 
+/** Let the Junimo show its little motions in the look picker. Stops when the picker closes. */
+function junimoPreview() {
+  const c = jellyCanvas('#3fcf5c', 15, 76, true, '', { skin: 'junimo' });
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return c;
+  const x = c.getContext('2d')!;
+  const dpr = c.width / 76;
+  const frame = (now: number) => {
+    if (!c.isConnected) return;
+    const t = now / 1000;
+    x.setTransform(dpr, 0, 0, dpr, 0, 0);
+    x.clearRect(0, 0, 76, 76);
+    drawJelly(x, 38, 41, 72, '#3fcf5c', 15, {
+      skin: 'junimo', face: true, time: t, mood: Math.sin(t * 2.8) > 0.8 ? 'happy' : 'idle',
+      wave: Math.sin(t * 3.4) * 0.35, squash: Math.sin(t * 3.4) * 0.08,
+    });
+    requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+  return c;
+}
+
 /** A booster icon as a canvas, for the bar and menus. */
 function boosterCanvas(id: BoosterId, size: number) {
   const c = document.createElement('canvas');
@@ -248,7 +269,9 @@ function skinsScreen(back: () => void) {
     skinsScreen(back);
   };
   show(`<div class="panel skins-panel"><div class="ribbon">Jelly looks</div><p>Choose your little helpers.</p><div class="skin-grid">${cards}</div><button class="btn ghost" data-act="back">Back</button></div>`, handlers);
-  for (const skin of SKINS) screen.querySelector(`[data-preview="${skin.id}"]`)?.append(jellyCanvas('#3fcf5c', 15, 76, true, '', { skin: skin.id }));
+  for (const skin of SKINS) screen.querySelector(`[data-preview="${skin.id}"]`)?.append(
+    skin.id === 'junimo' ? junimoPreview() : jellyCanvas('#3fcf5c', 15, 76, true, '', { skin: skin.id }),
+  );
 }
 
 function startDemo() {
