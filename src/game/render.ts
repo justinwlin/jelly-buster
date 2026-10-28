@@ -2,7 +2,7 @@
 // into offscreen layers; jellies, the moving belt and effects are drawn every frame.
 
 import { TUNING, type Jelly, type SimEvent, type State } from '../sim/engine';
-import { station, trackLength } from '../sim/track';
+import { trackLength } from '../sim/track';
 import { drawPropeller } from './boosterArt';
 import { drawJelly, JELLY_FONT, shade } from './jelly';
 import { computeLayout, stationPos, type Layout, type Pt } from './layout';
@@ -28,11 +28,15 @@ interface Vis {
   x: number;
   y: number;
   place: Place;
-  /** Arc tween between places. */
-  hop: { fx: number; fy: number; t: number; dur: number } | null;
+  /** Arc tween between places. `t` starts below 0 for a crouch before take-off. */
+  hop: { fx: number; fy: number; t: number; dur: number; lift: number; crouch: number } | null;
   /** Squash spring. */
   sq: number;
   sqv: number;
+  /** Extra squash from the hop (crouch, stretch), added to the spring. */
+  hs: number;
+  /** Clock of the "can't go" bounce, -1 when idle. */
+  nope: number;
   pulse: number;
   /** Recoil offset after a shot, decays. */
   rx: number;
@@ -112,6 +116,12 @@ export interface View {
   /** The crane's cable follows this jelly while it's carried to the belt. */
   craneFx: { id: number; t: number } | null;
   point: number | null;
+  /** Draw key hints (desktop): 1-9 on slots, Q W E R T on the queue fronts. */
+  keys: boolean;
+  /** Fraction of the way to the next sim tick, so belt jellies glide between ticks. */
+  frac: number;
+  /** Belt arrow offset in stations; only advances while jellies ride. */
+  treadPh: number;
   /** Screen shake amplitude in px, decays. */
   quake: number;
   launcherPulse: number;
@@ -126,8 +136,6 @@ export interface View {
   pic: HTMLCanvasElement | null;
   picDirty: boolean;
   cubeCache: Map<string, HTMLCanvasElement>;
-  /** Original cells, for the completed-picture reveal. */
-  full: number[];
   lastColor: Map<number, number>;
 }
 
@@ -152,6 +160,9 @@ export function newView(st: State, W: number, H: number, dpr: number, safeTop = 
     merging: [],
     craneFx: null,
     point: null,
+    keys: false,
+    frac: 0,
+    treadPh: 0,
     quake: 0,
     launcherPulse: 0,
     won: null,
@@ -162,7 +173,6 @@ export function newView(st: State, W: number, H: number, dpr: number, safeTop = 
     pic: null,
     picDirty: true,
     cubeCache: new Map(),
-    full: st.lvl.cells.slice(),
     lastColor: new Map(),
   };
   snapAll(v);
@@ -181,7 +191,7 @@ export function relayout(v: View, W: number, H: number, dpr: number, bar = v.l.b
 }
 
 function newVis(x: number, y: number, place: Place, id: number): Vis {
-  return { x, y, place, hop: null, sq: 0, sqv: 0, pulse: 0, rx: 0, ry: 0, wave: 0, shotAt: -9, alarm: 0, phase: (id * 1.618) % 1 };
+  return { x, y, place, hop: null, sq: 0, sqv: 0, hs: 0, nope: -1, pulse: 0, rx: 0, ry: 0, wave: 0, shotAt: -9, alarm: 0, phase: (id * 1.618) % 1 };
 }
 
 function snapAll(v: View) {
@@ -200,7 +210,7 @@ function targets(v: View): Map<number, Pt & { place: Place }> {
   st.cols.forEach((col, c) => col.forEach((j, d) => out.set(j.id, { x: l.qx[c], y: l.qy + d * l.qPitch, place: 'queue' })));
   st.slots.forEach((j, i) => j && i < l.slots.length && out.set(j.id, { ...l.slots[i], place: 'slot' }));
   st.pending.forEach((j, i) => out.set(j.id, { x: l.launcher.x - i * 5, y: l.launcher.y - l.beltSize * 0.1 + i * 5, place: 'pending' }));
-  for (const r of st.belt) out.set(r.j.id, { ...stationPos(l, r.p / TUNING.sub), place: 'belt' });
+  for (const r of st.belt) out.set(r.j.id, { ...stationPos(l, (r.p + v.frac) / TUNING.sub), place: 'belt' });
   st.flyers.forEach((f, i) => out.set(f.j.id, { ...hover(v, i), place: 'fly' }));
   if (st.held) out.set(st.held.id, { x: l.launcher.x, y: l.launcher.y - l.beltSize * 0.1, place: 'pending' });
   return out;
@@ -218,12 +228,6 @@ function hover(v: View, i: number): Pt {
 
 export function cellPt(l: Layout, cell: number, w: number): Pt {
   return { x: l.px + ((cell % w) + 0.5) * l.cs, y: l.py + (Math.floor(cell / w) + 0.5) * l.cs };
-}
-
-/** Unit vector from a belt station toward the picture. */
-function inward(v: View, s: number): Pt {
-  const st = station(v.st.lvl.w, v.st.lvl.h, Math.min(Math.floor(s), trackLength(v.st.lvl.w, v.st.lvl.h) - 1));
-  return [{ x: 0, y: -1 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 0 }][st.side] ?? { x: 0.7, y: -0.7 };
 }
 
 function spawn(v: View, p: Partial<Particle> & { x: number; y: number }) {
@@ -249,12 +253,16 @@ export function onEvents(v: View, evs: SimEvent[]) {
       v.ghosts.set(e.cell, e.color);
       const d = Math.hypot(to.x - from.x, to.y - from.y);
       v.shots.push({ from, to, t: 0, dur: Math.min(0.16, 0.05 + d / 2600), color: st.lvl.palette[e.color], cell: e.cell });
-      if (vis) {
-        const n = e.s < 0 ? { x: (from.x - to.x) / (d || 1), y: (from.y - to.y) / (d || 1) } : inward(v, e.s);
-        vis.rx += (e.s < 0 ? 1 : -1) * n.x * l.beltSize * 0.12;
-        vis.ry += (e.s < 0 ? 1 : -1) * n.y * l.beltSize * 0.12;
+      if (vis && e.s < 0) {
+        // Flyers bob back from each shot.
+        vis.rx += ((from.x - to.x) / (d || 1)) * l.beltSize * 0.12;
+        vis.ry += ((from.y - to.y) / (d || 1)) * l.beltSize * 0.12;
         vis.sqv += 5;
         vis.pulse = 1;
+        vis.shotAt = v.time;
+      } else if (vis) {
+        // Belt jellies keep gliding: no squash or recoil, just the count ticking down.
+        vis.pulse = 0.5;
         vis.shotAt = v.time;
       }
     } else if (e.k === 'done') {
@@ -268,10 +276,7 @@ export function onEvents(v: View, evs: SimEvent[]) {
         vis.alarm = 0;
       }
     } else if (e.k === 'launch') {
-      if (vis) {
-        vis.sqv -= 8;
-        vis.wave = 1;
-      }
+      if (vis) vis.wave = 1;
     } else if (e.k === 'loop') {
       // Going round again: a little hop of joy.
       if (vis) {
@@ -280,7 +285,6 @@ export function onEvents(v: View, evs: SimEvent[]) {
       }
     } else if (e.k === 'enter') {
       v.launcherPulse = 1;
-      if (vis) vis.sqv -= 6;
     } else if (e.k === 'lift') {
       if (vis) {
         vis.sqv -= 10;
@@ -313,6 +317,36 @@ export function onEvents(v: View, evs: SimEvent[]) {
       v.won = 0;
     }
   }
+}
+
+/** Crouch time before a jelly jumps off its slot or the queue. */
+const HOP_CROUCH = 0.08;
+/** Length of the "can't go" bounce. */
+const NOPE = 0.5;
+
+/** A jelly that can't go right now (belt full): it tries to hop, gets nowhere and squishes. */
+export function reject(v: View, id: number) {
+  const vis = v.vis.get(id);
+  if (vis && !vis.hop) vis.nope = 0;
+}
+
+/** Offset and squash for the "can't go" bounce: crouch, a little hop, a squishy landing and a shake. */
+function nopeFx(vis: Vis, size: number) {
+  if (vis.nope < 0) return { dx: 0, dy: 0, sq: 0 };
+  const u = vis.nope / NOPE;
+  if (u < 0.2) return { dx: 0, dy: 0, sq: 0.3 * (u / 0.2) };
+  if (u < 0.5) {
+    const k = (u - 0.2) / 0.3;
+    return { dx: 0, dy: -Math.sin(k * Math.PI) * size * 0.14, sq: k < 0.3 ? 0.3 - 0.52 * (k / 0.3) : -0.22 * (1 - (k - 0.3) / 0.7) };
+  }
+  const k = (u - 0.5) / 0.5;
+  const fade = Math.pow(1 - k, 1.5);
+  return { dx: Math.sin(k * Math.PI * 4) * size * 0.05 * fade, dy: 0, sq: 0.4 * Math.sin(k * Math.PI * 2.2) * fade };
+}
+
+/** Gentle idle breathing for jellies waiting in slots and at the queue front. */
+function breathe(v: View, vis: Vis) {
+  return Math.sin(v.time * 2.4 + vis.phase * 6) * 0.03;
 }
 
 export function popup(v: View, text: string, color = '#fff', size = 1) {
@@ -357,22 +391,40 @@ export function update(v: View, dt: number) {
       v.vis.set(id, vis);
     }
     if (vis.place !== t.place) {
-      // Changing place: hop along an arc (except slot/queue → pending → belt, which chains).
-      const dur = t.place === 'belt' && vis.place === 'pending' ? 0.12 : t.place === 'fly' ? 0.5 : v.craneFx?.id === id ? 0.65 : t.place === 'slot' ? 0.32 : 0.28;
-      vis.hop = { fx: vis.x, fy: vis.y, t: 0, dur };
+      // Changing place: hop along an arc. A jelly still mid-hop from its slot to the
+      // launcher keeps the same hop and just lands on the belt instead.
+      const chain = vis.place === 'pending' && t.place === 'belt';
+      if (!(chain && vis.hop)) {
+        const d = Math.hypot(t.x - vis.x, t.y - vis.y);
+        const crane = v.craneFx?.id === id;
+        const leaving = (vis.place === 'slot' || vis.place === 'queue') && t.place === 'pending' && !crane;
+        const dur = chain ? 0.16 : t.place === 'fly' ? 0.5 : crane ? 0.65 : t.place === 'slot' ? 0.38 : 0.36;
+        const lift = chain ? l.beltSize * 0.12 : t.place === 'fly' || crane ? Math.min(90, 30 + d * 0.25) : Math.min(l.beltSize * 1.1, 14 + d * 0.16);
+        vis.hop = { fx: vis.x, fy: vis.y, t: leaving ? -HOP_CROUCH : 0, dur, lift, crouch: leaving ? 0.3 : 0 };
+      }
       vis.place = t.place;
     }
     if (vis.hop) {
-      vis.hop.t += dt;
-      const u = Math.min(1, vis.hop.t / vis.hop.dur);
-      const e = u * u * (3 - 2 * u);
-      const lift = Math.sin(u * Math.PI) * Math.min(90, 30 + Math.hypot(t.x - vis.hop.fx, t.y - vis.hop.fy) * 0.25);
-      vis.x = vis.hop.fx + (t.x - vis.hop.fx) * e;
-      vis.y = vis.hop.fy + (t.y - vis.hop.fy) * e - lift;
-      if (u >= 1) {
-        vis.hop = null;
-        vis.sqv += 7;
-        if (t.place === 'slot') dust(v, t.x, t.y + l.slotSize * 0.38);
+      const h = vis.hop;
+      h.t += dt;
+      if (h.t < 0) {
+        // Crouch in place, gathering for the jump.
+        vis.hs = h.crouch * (1 + h.t / HOP_CROUCH);
+        vis.x = h.fx;
+        vis.y = h.fy;
+      } else {
+        const u = Math.min(1, h.t / h.dur);
+        const e = 0.5 - 0.5 * Math.cos(u * Math.PI);
+        vis.x = h.fx + (t.x - h.fx) * e;
+        vis.y = h.fy + (t.y - h.fy) * e - Math.sin(u * Math.PI) * h.lift;
+        // Spring out of the crouch into a tall stretch, easing back to round for landing.
+        vis.hs = u < 0.2 ? h.crouch + (-0.2 - h.crouch) * (u / 0.2) : -0.2 * (1 - (u - 0.2) / 0.8);
+        if (u >= 1) {
+          vis.hop = null;
+          vis.hs = 0;
+          vis.sqv += t.place === 'belt' ? 6 : 9;
+          if (t.place === 'slot') dust(v, t.x, t.y + l.slotSize * 0.38);
+        }
       }
     } else if (t.place === 'belt' || t.place === 'fly') {
       vis.x = t.x;
@@ -383,8 +435,10 @@ export function update(v: View, dt: number) {
       vis.y += (t.y - vis.y) * k;
       if (far > 2 && Math.hypot(t.x - vis.x, t.y - vis.y) <= 2) vis.sqv += 4;
     }
-    // Squash spring.
-    const acc = -180 * vis.sq - 11 * vis.sqv;
+    if (!vis.hop) vis.hs = 0;
+    if (vis.nope >= 0 && (vis.nope += dt) > NOPE) vis.nope = -1;
+    // Squash spring: soft and bouncy, settling in a couple of wobbles.
+    const acc = -180 * vis.sq - 15 * vis.sqv;
     vis.sqv += acc * dt;
     vis.sq += vis.sqv * dt;
     vis.pulse = Math.max(0, vis.pulse - dt * 5);
@@ -394,6 +448,7 @@ export function update(v: View, dt: number) {
     vis.alarm = Math.max(0, vis.alarm - dt * 0.6);
   }
   for (const id of [...v.vis.keys()]) if (!tg.has(id)) v.vis.delete(id);
+  if (st.status === 'play' && st.belt.length && !v.aim) v.treadPh += (dt * TUNING.hz) / TUNING.sub;
 
   for (const s of v.shots) {
     s.t += dt;
@@ -622,12 +677,12 @@ function bakeBg(v: View) {
   ctx.shadowColor = 'rgba(40,30,110,0.18)';
   ctx.shadowBlur = 16;
   ctx.fillStyle = 'rgba(255,255,255,0.26)';
-  rr(ctx, tx, trayY, tw, l.H - trayY + 30, 28);
+  rr(ctx, tx, trayY, tw, l.qBottom - trayY, 28);
   ctx.fill();
   ctx.restore();
   ctx.strokeStyle = 'rgba(255,255,255,0.55)';
   ctx.lineWidth = 2;
-  rr(ctx, tx, trayY, tw, l.H - trayY + 30, 28);
+  rr(ctx, tx, trayY, tw, l.qBottom - trayY, 28);
   ctx.stroke();
   for (const x of l.qx) {
     const lg = ctx.createLinearGradient(0, trayY, 0, l.qBottom);
@@ -758,7 +813,7 @@ export function draw(ctx: CanvasRenderingContext2D, v: View) {
     ctx.fill();
     ctx.globalAlpha = 1;
   }
-  if (v.won !== null) drawReveal(ctx, v);
+  if (v.won !== null) drawShine(ctx, v);
 
   drawShots(ctx, v);
   drawLauncher(ctx, v);
@@ -796,43 +851,26 @@ export function draw(ctx: CanvasRenderingContext2D, v: View) {
   }
 }
 
-/** Moving rubber cleats, in step with the jellies riding on them. */
+/** Direction arrows painted on the belt, gliding with the jellies riding on it. */
 function drawTreads(ctx: CanvasRenderingContext2D, v: View) {
   const { l, st } = v;
   const L = trackLength(st.lvl.w, st.lvl.h);
-  const moving = st.status === 'play' && st.belt.length + st.pending.length > 0 && !v.aim;
-  const phase = ((v.time * TUNING.hz) / TUNING.sub) % 1;
-  const ph = moving ? phase : st.belt.length ? 0 : (v.time * 1.5) % 1;
-  ctx.strokeStyle = 'rgba(255,255,255,0.09)';
-  ctx.lineWidth = Math.max(2, l.cs * 0.28);
-  ctx.lineCap = 'round';
-  const half = l.lane * 0.36;
-  for (let k = 0; k < L; k++) {
-    const s = (k + ph) % L;
-    const a = stationPos(l, s);
-    const b = stationPos(l, Math.min(L - 0.001, s + 0.05));
-    let tx = b.x - a.x;
-    let ty = b.y - a.y;
-    const m = Math.hypot(tx, ty) || 1;
-    tx /= m;
-    ty /= m;
-    ctx.beginPath();
-    ctx.moveTo(a.x - ty * half, a.y + tx * half);
-    ctx.lineTo(a.x + ty * half, a.y - tx * half);
-    ctx.stroke();
-  }
-  // Direction chevrons painted on the rim between cleats.
-  ctx.strokeStyle = 'rgba(200,210,255,0.2)';
+  // Evenly spaced around the whole loop so the offset can wrap without a jump.
+  const n = Math.max(1, Math.round(L / 6));
+  const gap = L / n;
+  const off = v.treadPh % gap;
+  ctx.strokeStyle = 'rgba(200,210,255,0.22)';
   ctx.lineWidth = Math.max(2, l.lane * 0.07);
-  for (let k = 3; k < L; k += 6) {
-    const s = (k + ph) % L;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  const z = l.lane * 0.13;
+  for (let i = 0; i < n; i++) {
+    const s = (i * gap + off) % L;
     const a = stationPos(l, s);
     const b = stationPos(l, Math.min(L - 0.001, s + 0.3));
-    const ang = Math.atan2(b.y - a.y, b.x - a.x);
     ctx.save();
     ctx.translate(a.x, a.y);
-    ctx.rotate(ang);
-    const z = l.lane * 0.13;
+    ctx.rotate(Math.atan2(b.y - a.y, b.x - a.x));
     ctx.beginPath();
     ctx.moveTo(-z, -z * 1.3);
     ctx.lineTo(z * 0.5, 0);
@@ -842,37 +880,78 @@ function drawTreads(ctx: CanvasRenderingContext2D, v: View) {
   }
 }
 
-function drawReveal(ctx: CanvasRenderingContext2D, v: View) {
-  const { l, st, dpr } = v;
-  const t = v.won!;
-  const a = Math.min(1, t / 0.6);
-  const W = l.gw * l.cs;
-  const H = l.gh * l.cs;
-  // The finished picture fades back in, with a shine sweeping across it.
-  const c = document.createElement('canvas');
-  c.width = Math.ceil(W * dpr);
-  c.height = Math.ceil(H * dpr);
-  const x = c.getContext('2d')!;
-  x.scale(dpr, dpr);
-  const { w } = st.lvl;
-  for (let i = 0; i < v.full.length; i++) {
-    const k = v.full[i];
-    if (k >= 0) x.drawImage(cubeSprite(v, st.lvl.palette[k]), (i % w) * l.cs, Math.floor(i / w) * l.cs, l.cs, l.cs);
+/** Four-point twinkle star. */
+function sparkle(ctx: CanvasRenderingContext2D, x: number, y: number, r: number) {
+  ctx.beginPath();
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2 - Math.PI / 2;
+    const k = i % 2 ? r * 0.22 : r;
+    ctx.lineTo(x + Math.cos(a) * k, y + Math.sin(a) * k);
   }
-  const sx = -W + ((t * 0.9) % 1.6) * W * 2;
-  const g = x.createLinearGradient(sx, 0, sx + W * 0.6, H);
-  g.addColorStop(0, 'rgba(255,255,255,0)');
-  g.addColorStop(0.5, 'rgba(255,255,255,0.6)');
-  g.addColorStop(1, 'rgba(255,255,255,0)');
-  x.globalCompositeOperation = 'source-atop';
-  x.fillStyle = g;
-  x.fillRect(0, 0, W, H);
-  const grow = 0.9 + 0.1 * a;
+  ctx.closePath();
+  ctx.fill();
+}
+
+/** The cleared board gleams: a glowing rim, shine sweeps and twinkling sparkles. */
+function drawShine(ctx: CanvasRenderingContext2D, v: View) {
+  const { l } = v;
+  const t = v.won!;
+  const f = l.frame;
+  const x = f.x + l.lane;
+  const y = f.y + l.lane;
+  const w = f.w - 2 * l.lane;
+  const h = f.h - 2 * l.lane;
+  const r = f.r * 0.5;
+  const a = Math.min(1, t / 0.4);
   ctx.save();
-  ctx.globalAlpha = a;
-  ctx.translate(l.px + W / 2, l.py + H / 2);
-  ctx.scale(grow, grow);
-  ctx.drawImage(c, -W / 2, -H / 2, W, H);
+  // Rim glow, swelling in and then breathing.
+  ctx.strokeStyle = `rgba(255,212,80,${a * (0.75 + 0.25 * Math.sin(t * 4))})`;
+  ctx.shadowColor = '#ffd23c';
+  ctx.shadowBlur = 20 + 8 * Math.sin(t * 4);
+  ctx.lineWidth = 5;
+  rr(ctx, x, y, w, h, r);
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+  rr(ctx, x, y, w, h, r);
+  ctx.clip();
+  ctx.fillStyle = `rgba(255,255,255,${0.12 * a})`;
+  ctx.fillRect(x, y, w, h);
+  // A big sweep first, then a softer one every couple of seconds.
+  const sweeps = [{ at: 0.15, len: 0.8, k: 0.75 }];
+  const loop = t > 1.4 ? (t - 1.4) % 2.4 : -1;
+  if (loop >= 0) sweeps.push({ at: t - loop, len: 0.9, k: 0.4 });
+  for (const s of sweeps) {
+    const u = (t - s.at) / s.len;
+    if (u < 0 || u > 1) continue;
+    const e = 0.5 - 0.5 * Math.cos(u * Math.PI);
+    const sx = x - w * 0.7 + e * (w * 1.7 + h * 0.6);
+    const g = ctx.createLinearGradient(sx, y, sx + h * 0.5 + w * 0.25, y + h);
+    g.addColorStop(0, 'rgba(255,255,255,0)');
+    g.addColorStop(0.45, `rgba(255,255,255,${s.k})`);
+    g.addColorStop(0.55, `rgba(255,255,255,${s.k})`);
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(x, y, w, h);
+  }
+  ctx.restore();
+  // Sparkles pop in across the board and keep twinkling.
+  const n = 12;
+  ctx.save();
+  ctx.shadowColor = '#ffb800';
+  ctx.shadowBlur = 10;
+  for (let i = 0; i < n; i++) {
+    const born = 0.2 + hash(i * 5.3) * 0.9;
+    if (t < born) continue;
+    const tw = Math.max(0, Math.sin((t - born) * (3 + hash(i) * 2) + hash(i * 2.7) * 6));
+    const pop = Math.min(1, (t - born) / 0.18);
+    const sr = l.cs * (0.8 + hash(i * 9.1) * 0.8) * pop * (0.35 + 0.65 * tw);
+    const sx = x + w * (0.08 + hash(i * 1.7) * 0.84);
+    const sy = y + h * (0.08 + hash(i * 3.9) * 0.84);
+    ctx.fillStyle = '#ffd23c';
+    sparkle(ctx, sx, sy, sr);
+    ctx.fillStyle = '#fffbe6';
+    sparkle(ctx, sx, sy, sr * 0.5);
+  }
   ctx.restore();
 }
 
@@ -985,7 +1064,7 @@ function drawBeltJellies(ctx: CanvasRenderingContext2D, v: View) {
     const hopY = v.won !== null ? -Math.abs(Math.sin(v.time * 9 + vis.phase * 6)) * bs * 0.25 : 0;
     drawJelly(ctx, vis.x + vis.rx, vis.y + vis.ry + hopY, bs, st.lvl.palette[j.color], j.n, {
       face: true,
-      squash: vis.sq,
+      squash: vis.sq + vis.hs,
       pulse: vis.pulse,
       mood: happy ? 'happy' : 'idle',
       blink: blink(v, vis),
@@ -1112,10 +1191,12 @@ function drawSlotJelly(ctx: CanvasRenderingContext2D, v: View, j: Jelly) {
   const vis = v.vis.get(j.id);
   if (!vis) return;
   const used = st.slots.filter((x) => x).length;
-  const worried = used >= st.slots.length - 1 && st.status === 'play';
-  drawJelly(ctx, vis.x + shakeX(v, j.id), vis.y, l.slotSize * 1.02, st.lvl.palette[j.color], j.n, {
+  const worried = (used >= st.slots.length - 1 && st.status === 'play') || vis.nope >= 0;
+  const size = l.slotSize * 1.02;
+  const no = nopeFx(vis, size);
+  drawJelly(ctx, vis.x + shakeX(v, j.id) + no.dx, vis.y + no.dy, size, st.lvl.palette[j.color], j.n, {
     face: true,
-    squash: vis.sq,
+    squash: vis.sq + vis.hs + no.sq + (vis.hop ? 0 : breathe(v, vis)),
     pulse: vis.pulse,
     mood: worried ? 'worried' : 'idle',
     blink: blink(v, vis),
@@ -1184,13 +1265,14 @@ function drawPanel(ctx: CanvasRenderingContext2D, v: View) {
       const front = d === 0;
       const ready = front && !j.ice && j.link < 0;
       const bob = ready ? Math.sin(v.time * 3 + vis.phase * 6) * l.qSize * 0.02 : 0;
-      drawJelly(ctx, vis.x + shakeX(v, j.id), vis.y + bob, l.qSize, st.lvl.palette[j.color], j.n, {
+      const no = nopeFx(vis, l.qSize);
+      drawJelly(ctx, vis.x + shakeX(v, j.id) + no.dx, vis.y + bob + no.dy, l.qSize, st.lvl.palette[j.color], j.n, {
         dim: !front,
         hidden: j.hidden && !front,
         ice: j.ice,
-        squash: vis.sq,
+        squash: vis.sq + no.sq + (ready ? breathe(v, vis) : 0),
         face: front,
-        mood: front ? 'idle' : 'sleep',
+        mood: !front ? 'sleep' : vis.nope >= 0 ? 'worried' : 'idle',
         blink: front && blink(v, vis),
         look: { x: 0, y: -1 },
         glow: v.point === j.id || v.aim?.has(j.id) ? v.time : 0,
@@ -1214,6 +1296,39 @@ function drawPanel(ctx: CanvasRenderingContext2D, v: View) {
   fade.addColorStop(1, THEME.fade1);
   ctx.fillStyle = fade;
   ctx.fillRect(l.panelX, l.qBottom - l.qSize, l.panelW, l.qSize);
+  if (v.keys && st.status === 'play') drawKeys(ctx, v);
+}
+
+/** Keys that send each jelly on desktop. Kept in step with the handler in main.ts. */
+export const SLOT_KEYS = '123456789';
+export const COL_KEYS = 'QWERT';
+
+/** Little keycaps on the corner of every slot jelly and queue front. */
+function drawKeys(ctx: CanvasRenderingContext2D, v: View) {
+  const { l, st } = v;
+  const cap = (x: number, y: number, k: string, size: number) => {
+    const s = Math.max(15, size * 0.3);
+    ctx.fillStyle = 'rgba(40,30,90,0.35)';
+    rr(ctx, x - s / 2, y - s / 2 + 2, s, s, s * 0.28);
+    ctx.fill();
+    ctx.fillStyle = '#fffaf0';
+    rr(ctx, x - s / 2, y - s / 2, s, s, s * 0.28);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(90,60,150,0.45)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.fillStyle = '#4a3a8a';
+    ctx.font = `800 ${Math.round(s * 0.66)}px ${JELLY_FONT}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(k, x, y + s * 0.06);
+  };
+  st.slots.forEach((j, i) => {
+    if (j && i < SLOT_KEYS.length && i < l.slots.length && !v.vis.get(j.id)?.hop) cap(l.slots[i].x + l.slotSize * 0.4, l.slots[i].y + l.slotSize * 0.4, SLOT_KEYS[i], l.slotSize);
+  });
+  st.cols.forEach((col, c) => {
+    if (col.length && c < COL_KEYS.length) cap(l.qx[c] + l.qSize * 0.4, l.qy + l.qSize * 0.34, COL_KEYS[c], l.qSize);
+  });
 }
 
 /** A squishy bridge between two linked neighbors, with a band around the middle. */

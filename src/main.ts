@@ -9,7 +9,7 @@ import { PACKS } from './sim/pictures';
 import { exposed } from './sim/track';
 import campaignData from './levels/campaign.json';
 import { buzz, setMusic, setSound, sfx, unlockAudio } from './game/audio';
-import { confetti, draw, drawJelly, hitTest, newView, onEvents, popup, relayout, update, type View } from './game/render';
+import { COL_KEYS, confetti, draw, drawJelly, hitTest, newView, onEvents, popup, reject, relayout, SLOT_KEYS, update, type View } from './game/render';
 import { load, store, type Save } from './game/save';
 import { drawBoosterIcon } from './game/boosterArt';
 import { uiScale } from './game/layout';
@@ -406,16 +406,6 @@ function livesBack(i: number) {
   );
 }
 
-let lastPct = -1;
-function updateProgress() {
-  if (!st) return;
-  const total = st.lvl.cells.filter((c) => c >= 0).length;
-  const pct = Math.round((1 - st.left / total) * 100);
-  if (pct === lastPct) return;
-  lastPct = pct;
-  $('hud-bar').style.width = `${pct}%`;
-}
-
 function startLevel(i: number) {
   levelIndex = i;
   demo = null;
@@ -426,12 +416,12 @@ function startLevel(i: number) {
   const { W, H, dpr } = viewport();
   const safe = safeInsets();
   view = newView(st, W, H, dpr, safe.top, safe.bottom);
+  view.keys = desktop || usedKeys;
   resize();
   barEl.classList.toggle('hidden', !barH());
   lastBar = '';
   mode = 'play';
   acc = 0;
-  lastPct = -1;
   speed = 1;
   streaks.clear();
   chain = { n: 0, at: -99, level: 0 };
@@ -439,8 +429,8 @@ function startLevel(i: number) {
   hideTip();
   hud.classList.remove('hidden');
   setHud();
-  updateProgress();
   tutorial = null;
+  if (view.keys && i > 0 && !seen('keys')) setTimeout(() => toast(`Keys: ${SLOT_KEYS[0]}–${SLOT_KEYS[4]} send slot jellies, ${COL_KEYS.split('').join(' ')} send the queue`, 3600), 700);
   if (i === 0 && !save.seen.includes('tutorial')) {
     tutorial = 'tap';
     showTip('<span class="hl">Tap a jelly</span> to send it around the belt!');
@@ -687,6 +677,7 @@ function tryLaunch(id: number) {
     buzz(save.settings.haptics, 25);
     if (res.why === 'belt') {
       view.beltFlash = 0.6;
+      reject(view, id);
       toast('Belt full: wait for one to come back');
     } else if (res.why === 'ice') {
       view.shake = { id, t: 0.35 };
@@ -713,10 +704,9 @@ function tryLaunch(id: number) {
   }
 }
 
-canvas.addEventListener('pointerdown', (e) => {
-  unlockAudio();
+/** A tap or key press on a jelly (null for empty space). */
+function pick(id: number | null) {
   if (!view || mode !== 'play') return;
-  const id = hitTest(view, e.clientX, e.clientY);
   if (aim) {
     // Armed booster: a glowing jelly takes it, anything else puts it away.
     if (id !== null && view.aim?.has(id)) applyBooster(aim, id);
@@ -724,6 +714,30 @@ canvas.addEventListener('pointerdown', (e) => {
     return;
   }
   if (id !== null) tryLaunch(id);
+}
+
+canvas.addEventListener('pointerdown', (e) => {
+  unlockAudio();
+  if (!view || mode !== 'play') return;
+  pick(hitTest(view, e.clientX, e.clientY));
+});
+
+/** Desktop gets key hints from the start; anyone else once they press a jelly key. */
+const desktop = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+let usedKeys = false;
+
+/** Number keys send slot jellies, Q W E R T send the front of each queue column. */
+window.addEventListener('keydown', (e) => {
+  if (!st || !view || mode !== 'play' || e.repeat || e.metaKey || e.ctrlKey || e.altKey || e.key.length !== 1) return;
+  const k = e.key.toUpperCase();
+  const si = SLOT_KEYS.indexOf(k);
+  const ci = COL_KEYS.indexOf(k);
+  if (si < 0 && ci < 0) return;
+  e.preventDefault();
+  unlockAudio();
+  usedKeys = true;
+  view.keys = true;
+  pick(si >= 0 ? st.slots[si]?.id ?? null : st.cols[ci]?.[0]?.id ?? null);
 });
 
 function handleEvents() {
@@ -1006,7 +1020,7 @@ function frame(now: number) {
         handleEvents();
         acc -= h;
       }
-      updateProgress();
+      view.frac = Math.min(0.999, acc / h);
     } else if (mode === 'over') {
       // Keep the belt running for the celebration (no new events matter).
       st.events = [];
@@ -1035,6 +1049,7 @@ function frame(now: number) {
       acc -= h;
     }
     if (demo) {
+      demo.view.frac = Math.min(0.999, Math.max(0, acc / h));
       update(demo.view, dt);
       draw(ctx, demo.view);
     }
