@@ -109,6 +109,8 @@ export interface View {
   shake: { id: number; t: number } | null;
   /** Linked group to highlight after a blocked tap. */
   ropeHint: { link: number; t: number } | null;
+  /** Price tag shown on locked slot sockets. */
+  lockPrice: number;
   /** Jellies an armed booster can be used on (they glow), null when nothing is armed. */
   aim: Set<number> | null;
   /** Jellies squishing into a merged one: fly from (x, y) to the jelly `into`. */
@@ -139,10 +141,13 @@ export interface View {
   lastColor: Map<number, number>;
 }
 
+/** Slot sockets to lay out: open and locked ones, plus any added by continuing. */
+const sockets = (st: State) => Math.max(st.lvl.sockets ?? st.lvl.slots, st.slots.length);
+
 export function newView(st: State, W: number, H: number, dpr: number, safeTop = 0, safeBottom = 0): View {
   const v: View = {
     st,
-    l: computeLayout(W, H, st.lvl.w, st.lvl.h, st.slots.length, st.cols.length, safeTop, safeBottom, 0),
+    l: computeLayout(W, H, st.lvl.w, st.lvl.h, sockets(st), st.cols.length, safeTop, safeBottom, 0),
     dpr,
     time: 0,
     vis: new Map(),
@@ -157,6 +162,7 @@ export function newView(st: State, W: number, H: number, dpr: number, safeTop = 
     shake: null,
     ropeHint: null,
     aim: null,
+    lockPrice: 0,
     merging: [],
     craneFx: null,
     point: null,
@@ -182,7 +188,7 @@ export function newView(st: State, W: number, H: number, dpr: number, safeTop = 
 /** `bar` is the height kept free at the bottom for the booster bar. */
 export function relayout(v: View, W: number, H: number, dpr: number, bar = v.l.bar.h) {
   v.dpr = dpr;
-  v.l = computeLayout(W, H, v.st.lvl.w, v.st.lvl.h, v.st.slots.length, v.st.cols.length, v.safeTop, v.safeBottom, bar);
+  v.l = computeLayout(W, H, v.st.lvl.w, v.st.lvl.h, sockets(v.st), v.st.cols.length, v.safeTop, v.safeBottom, bar);
   v.cubeCache.clear();
   v.bg = null;
   v.pic = null;
@@ -695,8 +701,11 @@ function bakeBg(v: View) {
 
   // Slot sockets: carved wooden squares.
   const s = l.slotSize;
+  const open = v.st.lvl.sockets ?? v.st.lvl.slots;
   l.slots.forEach((p, i) => {
-    const extra = i >= v.st.lvl.slots;
+    // Sockets past the level's own (added by continuing) are green; locked ones are dark.
+    const extra = i >= open;
+    const locked = !extra && i >= v.st.slots.length;
     ctx.save();
     ctx.shadowColor = 'rgba(40,20,5,0.4)';
     ctx.shadowBlur = 6;
@@ -709,7 +718,8 @@ function bakeBg(v: View) {
       rr(ctx, p.x - s / 2, p.y - s / 2, s, s, s * 0.24);
       ctx.fillStyle = '#9fe08a';
       ctx.fill();
-    } else wood(ctx, p.x - s / 2, p.y - s / 2, s, s, s * 0.24, '#f0b877', '#d08f4f', 20 + i);
+    } else if (locked) wood(ctx, p.x - s / 2, p.y - s / 2, s, s, s * 0.24, '#b58660', '#8f6343', 20 + i);
+    else wood(ctx, p.x - s / 2, p.y - s / 2, s, s, s * 0.24, '#f0b877', '#d08f4f', 20 + i);
     ctx.save();
     rr(ctx, p.x - s * 0.36, p.y - s * 0.34, s * 0.72, s * 0.7, s * 0.16);
     ctx.clip();
@@ -761,26 +771,43 @@ function cubeSprite(v: View, color: string): HTMLCanvasElement {
   return c;
 }
 
+const picPad = (v: View) => Math.ceil(v.l.cs * 0.25 * v.dpr);
+
 function bakePicture(v: View) {
   const { l, st, dpr } = v;
   if (!v.pic) {
     v.pic = document.createElement('canvas');
     v.pic.width = Math.ceil((l.gw * l.cs + 8) * dpr);
-    v.pic.height = Math.ceil((l.gh * l.cs + 8) * dpr);
+    // Extra room above the top row for raised (layered) cubes.
+    v.pic.height = Math.ceil((l.gh * l.cs + 8) * dpr) + picPad(v);
   }
   const ctx = v.pic.getContext('2d')!;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, v.pic.width, v.pic.height);
+  ctx.translate(0, picPad(v));
   const cs = l.cs * dpr;
   const { w } = st.lvl;
-  const cell = (i: number) => (st.cells[i] >= 0 ? st.cells[i] : v.ghosts.get(i) ?? -1);
+  // A cube still flying toward its shot is drawn as it was, on top of whatever it uncovers.
+  const top = (i: number) => v.ghosts.get(i) ?? st.cells[i];
+  const below = (i: number) => (v.ghosts.has(i) ? st.cells[i] : st.under[i]);
   // Soft contact shadow under the cubes.
   ctx.fillStyle = 'rgba(40,25,20,0.28)';
-  for (let i = 0; i < st.cells.length; i++) if (cell(i) >= 0) ctx.fillRect((i % w) * cs + cs * 0.12, Math.floor(i / w) * cs + cs * 0.22, cs, cs);
+  for (let i = 0; i < st.cells.length; i++) if (top(i) >= 0) ctx.fillRect((i % w) * cs + cs * 0.12, Math.floor(i / w) * cs + cs * 0.22, cs, cs);
+  // Layered cells: the cube underneath shows, and the top cube sits on it, raised a little,
+  // so the color that comes next peeks out along the bottom edge.
+  const lift = cs * 0.2;
   for (let i = 0; i < st.cells.length; i++) {
-    const c = cell(i);
+    const c = top(i);
     if (c < 0) continue;
-    ctx.drawImage(cubeSprite(v, st.lvl.palette[c]), (i % w) * cs, Math.floor(i / w) * cs, cs, cs);
+    const x = (i % w) * cs;
+    const y = Math.floor(i / w) * cs;
+    const u = below(i);
+    if (u >= 0) {
+      ctx.drawImage(cubeSprite(v, st.lvl.palette[u]), x, y, cs, cs);
+      ctx.fillStyle = 'rgba(30,15,40,0.35)';
+      ctx.fillRect(x + cs * 0.08, y + cs - lift - cs * 0.06, cs * 0.84, cs * 0.08);
+      ctx.drawImage(cubeSprite(v, st.lvl.palette[c]), x, y - lift, cs, cs);
+    } else ctx.drawImage(cubeSprite(v, st.lvl.palette[c]), x, y, cs, cs);
   }
   v.picDirty = false;
 }
@@ -800,7 +827,7 @@ export function draw(ctx: CanvasRenderingContext2D, v: View) {
   drawTreads(ctx, v);
   // The picture: baked cubes, a white flash on cubes that just popped.
   ctx.save();
-  ctx.setTransform(1, 0, 0, 1, (l.px + qx) * dpr, (l.py + qy) * dpr);
+  ctx.setTransform(1, 0, 0, 1, (l.px + qx) * dpr, (l.py + qy) * dpr - picPad(v));
   ctx.drawImage(v.pic!, 0, 0);
   ctx.restore();
   for (const f of v.flashes) {
@@ -1226,6 +1253,7 @@ function drawPanel(ctx: CanvasRenderingContext2D, v: View) {
     ctx.restore();
   }
   for (const j of st.slots) if (j && !v.vis.get(j.id)?.hop) drawSlotJelly(ctx, v, j);
+  for (let i = st.slots.length; i < l.slots.length; i++) drawLock(ctx, v, l.slots[i]);
 
   // Queue: front row bright and awake, the rest dimmed and dozing.
   const trayY = l.qy - l.qSize * 0.78;
@@ -1329,6 +1357,55 @@ function drawKeys(ctx: CanvasRenderingContext2D, v: View) {
   st.cols.forEach((col, c) => {
     if (col.length && c < COL_KEYS.length) cap(l.qx[c] + l.qSize * 0.4, l.qy + l.qSize * 0.34, COL_KEYS[c], l.qSize);
   });
+}
+
+/** A locked slot socket: a padlock and the gold it costs to open. */
+function drawLock(ctx: CanvasRenderingContext2D, v: View, p: Pt) {
+  const s = v.l.slotSize;
+  const wob = Math.sin(v.time * 2.2 + p.x) * 0.06;
+  ctx.save();
+  ctx.translate(p.x, p.y - s * 0.08);
+  ctx.rotate(wob);
+  // Shackle.
+  ctx.strokeStyle = '#8d93ad';
+  ctx.lineWidth = s * 0.09;
+  ctx.beginPath();
+  ctx.arc(0, -s * 0.08, s * 0.15, Math.PI, 0);
+  ctx.lineTo(s * 0.15, s * 0.02);
+  ctx.moveTo(-s * 0.15, -s * 0.08);
+  ctx.lineTo(-s * 0.15, s * 0.02);
+  ctx.stroke();
+  // Body.
+  const g = ctx.createLinearGradient(0, -s * 0.05, 0, s * 0.28);
+  g.addColorStop(0, '#ffd75e');
+  g.addColorStop(1, '#e09a00');
+  ctx.fillStyle = g;
+  rr(ctx, -s * 0.24, -s * 0.04, s * 0.48, s * 0.34, s * 0.08);
+  ctx.fill();
+  ctx.fillStyle = '#9c5d00';
+  ctx.beginPath();
+  ctx.arc(0, s * 0.1, s * 0.05, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillRect(-s * 0.02, s * 0.1, s * 0.04, s * 0.1);
+  ctx.restore();
+  // Price tag.
+  if (v.lockPrice > 0 && v.st.status === 'play') {
+    const label = String(v.lockPrice);
+    ctx.font = `800 ${Math.round(s * 0.24)}px ${JELLY_FONT}`;
+    const tw = ctx.measureText(label).width + s * 0.34;
+    const ty = p.y + s * 0.4;
+    ctx.fillStyle = '#fff4cc';
+    rr(ctx, p.x - tw / 2, ty - s * 0.15, tw, s * 0.3, s * 0.15);
+    ctx.fill();
+    ctx.fillStyle = '#f5a800';
+    ctx.beginPath();
+    ctx.arc(p.x - tw / 2 + s * 0.15, ty, s * 0.1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#6b3d22';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, p.x - tw / 2 + s * 0.28, ty + s * 0.01);
+  }
 }
 
 /** A squishy bridge between two linked neighbors, with a band around the middle. */
@@ -1512,6 +1589,14 @@ export function hitTest(v: View, x: number, y: number): number | null {
     }
   }
   return null;
+}
+
+/** Is (x, y) on a locked slot socket? */
+export function hitLocked(v: View, x: number, y: number): boolean {
+  const { l, st } = v;
+  const s = l.slotSize * 0.62;
+  for (let i = st.slots.length; i < l.slots.length; i++) if (Math.abs(x - l.slots[i].x) < s && Math.abs(y - l.slots[i].y) < s) return true;
+  return false;
 }
 
 /** A small puff of dust, e.g. when a jelly lands in a slot. */

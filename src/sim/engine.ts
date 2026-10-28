@@ -40,11 +40,19 @@ export interface Level {
   h: number;
   /** Color index per cell, -1 for empty. Row-major, y down. */
   cells: number[];
+  /** Layered pictures: the cube sitting under each cell's cube (-1 for none). Popping the
+   * top cube uncovers it in the same spot. */
+  under?: number[];
   /** Hex color per color index. */
   palette: string[];
   columns: JellySpec[][];
+  /** Slots open at the start. */
   slots: number;
+  /** Slot sockets on screen (open + locked); locked ones can be unlocked for gold. */
+  sockets?: number;
   belt: number;
+  /** Every fifth level from 10 on: a tougher deal, fewer open slots, double gold. */
+  hard?: boolean;
 }
 
 export interface Jelly {
@@ -93,6 +101,9 @@ export interface State {
   lvl: Level;
   tick: number;
   cells: number[];
+  /** Cubes still under the top layer, -1 where there are none. */
+  under: number[];
+  /** Cubes left to pop, both layers. */
   left: number;
   cols: Jelly[][];
   slots: (Jelly | null)[];
@@ -104,6 +115,8 @@ export interface State {
   launches: number;
   /** Boosters used this game. */
   boosts: number;
+  /** Locked slots opened with gold this game. */
+  unlocks: number;
   status: 'play' | 'won' | 'lost';
   reason: 'full' | 'stuck' | null;
   /** The jelly that came back to full slots (kept so a revive can park it). */
@@ -121,11 +134,13 @@ export interface State {
 
 export function newState(lvl: Level): State {
   const cells = lvl.cells.slice();
+  const under = lvl.under?.slice() ?? cells.map(() => -1);
   return {
     lvl,
     tick: 0,
     cells,
-    left: cells.filter((c) => c >= 0).length,
+    under,
+    left: cells.filter((c) => c >= 0).length + under.filter((c) => c >= 0).length,
     cols: lvl.columns.map((col) =>
       col.map((j) => ({ id: j.id, color: j.color, n: j.n, ice: j.ice ?? 0, link: j.link ?? -1, hidden: !!j.hidden })),
     ),
@@ -135,6 +150,7 @@ export function newState(lvl: Level): State {
     flyers: [],
     launches: 0,
     boosts: 0,
+    unlocks: 0,
     status: 'play',
     reason: null,
     held: null,
@@ -152,6 +168,7 @@ export function cloneState(st: State): State {
   return {
     ...st,
     cells: st.cells.slice(),
+    under: st.under.slice(),
     cols: st.cols.map((c) => c.map(cj)),
     slots: st.slots.map((j) => (j ? cj(j) : null)),
     belt: st.belt.map((r) => ({ j: cj(r.j), p: r.p, lapHits: r.lapHits })),
@@ -166,6 +183,26 @@ export function cloneState(st: State): State {
 const emit = (st: State, e: SimEvent) => {
   if (st.log) st.events.push(e);
 };
+
+/** Pop the top cube of a cell: the cube under it (if any) takes its place. */
+function pop(st: State, i: number) {
+  st.cells[i] = st.under[i];
+  st.under[i] = -1;
+  st.left--;
+  st.shots++;
+  st.lastShot = st.tick;
+}
+
+/** Slot sockets still locked. */
+export const lockedSlots = (st: State) => Math.max(0, (st.lvl.sockets ?? st.lvl.slots) - st.slots.length);
+
+/** Open a locked slot (bought with gold) for the rest of this game. */
+export function unlockSlot(st: State): boolean {
+  if (st.status !== 'play' || !lockedSlots(st)) return false;
+  st.slots.push(null);
+  st.unlocks++;
+  return true;
+}
 
 /** Where a jelly is: a slot index, or a column and depth. */
 export function locate(st: State, id: number): { slot: number; col: number; depth: number } | null {
@@ -357,10 +394,7 @@ function stepFlyers(st: State) {
     if (f.t < FLY.rise || (f.t - FLY.rise) % FLY.every) continue;
     const i = flyTarget(st, f.j.color);
     if (i >= 0) {
-      st.cells[i] = -1;
-      st.left--;
-      st.shots++;
-      st.lastShot = st.tick;
+      pop(st, i);
       f.j.n--;
       emit(st, { k: 'shot', id: f.j.id, cell: i, color: f.j.color, s: -1 });
     }
@@ -460,10 +494,7 @@ export function step(st: State) {
     if (at.side < 0) continue;
     const i = firstInLine(st.cells, w, h, at);
     if (i < 0 || st.cells[i] !== r.j.color) continue;
-    st.cells[i] = -1;
-    st.left--;
-    st.shots++;
-    st.lastShot = st.tick;
+    pop(st, i);
     r.lapHits++;
     r.j.n--;
     emit(st, { k: 'shot', id: r.j.id, cell: i, color: r.j.color, s });
@@ -492,6 +523,8 @@ export function step(st: State) {
 /** Continue after running out of slots: add one slot and park the jelly that came back. */
 export function revive(st: State): boolean {
   if (st.status !== 'lost' || st.reason !== 'full' || !st.held) return false;
+  // A locked socket is the natural place for the extra slot.
+  if (lockedSlots(st)) st.unlocks++;
   st.slots.push(st.held);
   emit(st, { k: 'park', id: st.held.id, slot: st.slots.length - 1 });
   st.held = null;

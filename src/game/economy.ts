@@ -2,7 +2,7 @@
 // unit tested and every screen applies the same rules.
 
 import { BOOSTERS, BOOSTERS_FROM, canUse, type BoosterId } from '../sim/boosters';
-import type { State } from '../sim/engine';
+import { unlockSlot, type State } from '../sim/engine';
 import type { Save } from './save';
 
 export const LIVES = {
@@ -18,8 +18,20 @@ export const LIVES = {
 /** Continuing after running out of slots: +1 slot, price grows with each revive. */
 export const REVIVE_COST = 100;
 
-/** Gold for clearing a level with `stars` stars. */
-export const reward = (stars: number) => 20 + stars * 10;
+/** Gold for clearing a level with `stars` stars; hard levels pay double. */
+export const reward = (stars: number, hard = false) => (20 + stars * 10) * (hard ? 2 : 1);
+
+/** Opening a locked slot for this game: each one costs more than the last. */
+export const SLOT_PRICE = { first: 50, step: 30 };
+export const slotPrice = (st: State) => SLOT_PRICE.first + SLOT_PRICE.step * st.unlocks;
+
+/** Unlock a locked slot for the rest of this game. Only on sale while one is locked. */
+export function buySlot(s: Save, st: State): boolean {
+  const price = slotPrice(st);
+  if (s.coins < price || !unlockSlot(st)) return false;
+  s.coins -= price;
+  return true;
+}
 
 /** Bring lives up to date with the clock. Call before reading save.lives. */
 export function syncLives(s: Save, now: number) {
