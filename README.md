@@ -1,5 +1,7 @@
 # Jelly Buster
 
+**▶ Play it: https://justinwlin.github.io/jelly-buster/**
+
 A puzzle game about sending jellies around a conveyor belt so they munch every cube of a pixel-art picture. It's a PWA: plays in the browser on phone and desktop, installs to the home screen, and works offline.
 
 ## How to play
