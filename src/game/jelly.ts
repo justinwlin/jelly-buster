@@ -1,8 +1,11 @@
 // The jelly creature: a squishy translucent cube with cat ears, a face and its hit count.
+import { skinDrawer } from './skins';
 
 export type Mood = 'idle' | 'happy' | 'worried' | 'sleep' | 'shout';
 
 export interface JellyLook {
+  /** Override the selected look, used by the skin picker previews. */
+  skin?: string;
   /** Squash: >0 wide and short, <0 tall and thin. */
   squash?: number;
   /** 0..1 pulse on the number after a hit. */
@@ -94,6 +97,8 @@ function bodyPath(ctx: CanvasRenderingContext2D, w: number, h: number) {
 }
 
 export function drawJelly(ctx: CanvasRenderingContext2D, x: number, y: number, size: number, color: string, n: number | string, o: JellyLook = {}) {
+  const alternate = skinDrawer(o.skin);
+  if (alternate) return alternate(ctx, x, y, size, color, n, o);
   const sq = Math.max(-0.5, Math.min(0.5, o.squash ?? 0));
   const sc = o.scale ?? 1;
   if (sc <= 0.01) return;

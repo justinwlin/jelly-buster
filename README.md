@@ -15,6 +15,7 @@ A puzzle game about sending jellies around a conveyor belt so they munch every c
 - Up to 5 jellies can be on the belt at once (the `5/5` counter by the launcher).
 - Clear every cube to finish the picture. Using fewer slots earns more stars.
 - On a phone, turn Haptics on in settings for tap feedback. Android uses vibration patterns; iPhone gives a tick when you tap the board.
+- Choose Classic or Junimo from **Looks** on the title or pause screen. Your choice is saved and applies to every jelly color.
 
 ## Mechanics as you go
 

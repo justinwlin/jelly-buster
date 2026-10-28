@@ -22,7 +22,8 @@ const z = <T>(page: Page, body: string) => page.evaluate(`(() => { const z = win
 const browser = await chromium.launch({ executablePath: browserPath() });
 for (const [name, opts] of Object.entries(profiles)) {
   console.log(`\n[${name}]`);
-  const ctx = await browser.newContext(opts);
+  // Keep first-install service worker reloads from interrupting gameplay assertions.
+  const ctx = await browser.newContext({ ...opts, serviceWorkers: 'block' });
   const page = await ctx.newPage();
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -32,6 +33,14 @@ for (const [name, opts] of Object.entries(profiles)) {
   await page.reload();
   await page.waitForFunction(() => (window as any).__jb?.mode === 'title');
   check('title screen shows', await page.isVisible('[data-act="play"]'));
+  await page.click('[data-act="skins"]');
+  check('look picker shows both skins', await page.locator('.skin-option').count() === 2);
+  await page.click('[data-act="skin-junimo"]');
+  check('Junimo look is selected', await page.locator('.skin-option.selected').getAttribute('data-act') === 'skin-junimo');
+  await page.click('[data-act="back"]');
+  await page.reload();
+  await page.waitForFunction(() => (window as any).__jb?.mode === 'title');
+  check('selected look survives reload', await z<string>(page, 'return z.save().settings.skin') === 'junimo');
 
   await page.click('[data-act="play"]', { force: true });
   await page.waitForTimeout(300);

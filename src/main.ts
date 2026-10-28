@@ -10,6 +10,7 @@ import { exposed } from './sim/track';
 import campaignData from './levels/campaign.json';
 import { setMusic, setSound, sfx, unlockAudio } from './game/audio';
 import { Haptics } from './game/haptics';
+import { SKINS, setSkin } from './game/skins';
 import { COL_KEYS, confetti, draw, drawJelly, hitLocked, hitTest, newView, onEvents, popup, reject, relayout, shade, SLOT_KEYS, update, type View } from './game/render';
 import { load, store, type Save } from './game/save';
 import { drawBoosterIcon } from './game/boosterArt';
@@ -38,6 +39,7 @@ const aimEl = $('aimhint');
 const BAR_H = 78;
 
 let save: Save = load();
+save.settings.skin = setSkin(save.settings.skin);
 const haptics = new Haptics();
 haptics.enabled = save.settings.haptics;
 const tapzone = $('tapzone');
@@ -206,6 +208,7 @@ function settingsToggles() {
     <button class="toggle ${save.settings.sound ? 'on' : ''}" data-act="sound" aria-pressed="${save.settings.sound}"><i>🔊</i>Sound</button>
     <button class="toggle ${save.settings.music ? 'on' : ''}" data-act="music" aria-pressed="${save.settings.music}"><i>🎵</i>Music</button>
     <button class="toggle ${save.settings.haptics ? 'on' : ''}" data-act="haptics" aria-pressed="${save.settings.haptics}"><i>📳</i>Haptics</button>
+    <button class="toggle skin-toggle" data-act="skins" aria-label="Jelly looks"><i>🎨</i>Looks</button>
   </div>`;
 }
 
@@ -231,7 +234,21 @@ function toggleHandlers(rerender: () => void) {
       if (haptics.enabled) haptics.pulse(20);
       rerender();
     },
+    skins: () => skinsScreen(rerender),
   };
+}
+
+function skinsScreen(back: () => void) {
+  const cards = SKINS.map((skin) => `<button class="skin-option ${save.settings.skin === skin.id ? 'selected' : ''}" data-act="skin-${skin.id}" aria-pressed="${save.settings.skin === skin.id}">
+    <span class="skin-preview" data-preview="${skin.id}"></span><b>${skin.name}</b><small>${skin.description}</small></button>`).join('');
+  const handlers: Record<string, () => void> = { back };
+  for (const skin of SKINS) handlers[`skin-${skin.id}`] = () => {
+    save.settings.skin = setSkin(skin.id);
+    store(save);
+    skinsScreen(back);
+  };
+  show(`<div class="panel skins-panel"><div class="ribbon">Jelly looks</div><p>Choose your little helpers.</p><div class="skin-grid">${cards}</div><button class="btn ghost" data-act="back">Back</button></div>`, handlers);
+  for (const skin of SKINS) screen.querySelector(`[data-preview="${skin.id}"]`)?.append(jellyCanvas('#3fcf5c', 15, 76, true, '', { skin: skin.id }));
 }
 
 function startDemo() {

@@ -109,6 +109,15 @@ button { font-family: var(--font); }
 .toggle.on { background: #ffe39a; color: var(--ink); box-shadow: 0 3px 0 #d9ae4a; }
 .toggle.on i { filter: none; opacity: 1; }
 .toggle:active { transform: translateY(2px); box-shadow: 0 1px 0 #c9ad8c; }
+.skin-toggle { font-size: 14px; }
+.skin-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.skin-option { border: 3px solid #d8c2a8; border-radius: 18px; background: #fff8ec; color: var(--ink); padding: 8px 5px 10px; font-family: var(--font); cursor: pointer; }
+.skin-option.selected { border-color: #4cb957; background: #e8ffdf; }
+.skin-preview { display: grid; place-items: center; min-height: 76px; }
+.skin-preview canvas { image-rendering: pixelated; }
+.skin-option b, .skin-option small { display: block; line-height: 1.15; }
+.skin-option b { font-size: 20px; }
+.skin-option small { font-size: 12px; font-weight: 700; }
 
 /* ---------------------------------------------------------------- levels */
 .panel.levels { padding-top: 32px; }

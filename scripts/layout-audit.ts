@@ -86,6 +86,9 @@ for (const [name, opts] of Object.entries(PROFILES)) {
   await z(page, `z.setSave({ unlocked: 40, coins: 1234, lives: 2, lifeAt: Date.now() - 60000, seen: ['tutorial', 'slots'] }); z.title()`);
   await page.waitForTimeout(600);
   await menu(page, name, 'title');
+  await page.click('[data-act="skins"]', { force: true });
+  await menu(page, name, 'skins');
+  await page.click('[data-act="back"]', { force: true });
   await page.click('[data-act="levels"]', { force: true });
   await menu(page, name, 'levels');
   // A level: the boosters gift, a new-mechanic tip, then play.
