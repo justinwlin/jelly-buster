@@ -1220,8 +1220,7 @@ function drawSlotJelly(ctx: CanvasRenderingContext2D, v: View, j: Jelly) {
   const { l, st } = v;
   const vis = v.vis.get(j.id);
   if (!vis) return;
-  const used = st.slots.filter((x) => x).length;
-  const worried = (used >= st.slots.length - 1 && st.status === 'play') || vis.nope >= 0;
+  const worried = vis.nope >= 0;
   const size = l.slotSize * 1.02;
   const no = nopeFx(vis, size);
   drawJelly(ctx, vis.x + shakeX(v, j.id) + no.dx, vis.y + no.dy, size, st.lvl.palette[j.color], j.n, {
@@ -1239,22 +1238,6 @@ function drawSlotJelly(ctx: CanvasRenderingContext2D, v: View, j: Jelly) {
 
 function drawPanel(ctx: CanvasRenderingContext2D, v: View) {
   const { l, st } = v;
-  // Slots: warn when nearly full.
-  const s = l.slotSize;
-  const used = st.slots.filter((j) => j).length;
-  if (used >= st.slots.length - 1 && st.status === 'play') {
-    const a = 0.45 + 0.35 * Math.sin(v.time * 8);
-    ctx.save();
-    ctx.strokeStyle = `rgba(255,70,70,${a})`;
-    ctx.shadowColor = 'rgba(255,40,40,0.8)';
-    ctx.shadowBlur = 12;
-    ctx.lineWidth = 3;
-    const x0 = l.slots[0].x - s * 0.64;
-    const x1 = l.slots[l.slots.length - 1].x + s * 0.64;
-    rr(ctx, x0, l.slots[0].y - s * 0.64, x1 - x0, s * 1.28 + 4, s * 0.3);
-    ctx.stroke();
-    ctx.restore();
-  }
   for (const j of st.slots) if (j && !v.vis.get(j.id)?.hop) drawSlotJelly(ctx, v, j);
   for (let i = st.slots.length; i < l.slots.length; i++) drawLock(ctx, v, l.slots[i]);
 
