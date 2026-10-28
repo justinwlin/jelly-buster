@@ -1,5 +1,7 @@
 # Plan: more crunch (locked slots, hard levels, bigger jellies, layered pictures)
 
+> Historical plan: the layered-picture design below describes generator version 4. Version 5 uses two different pictures, with white cubes only where the hidden picture extends beyond the first. The second picture appears after the first is fully cleared. See [development.md](development.md) for the current rules.
+
 Status: **implemented and verified.** The four mechanics are in the game, with campaign data rebuilt at `GEN_VERSION = 4`. Read [development.md](development.md) for the current builder and workflow.
 
 ## What Justin asked for

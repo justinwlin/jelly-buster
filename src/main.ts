@@ -328,7 +328,7 @@ function levelsScreen() {
 const FEATURE_TIPS: Record<Feature, { title: string; text: string }> = {
   locked: { title: 'Locked slots', text: 'Some levels start with fewer open slots. Tap a lock to open it with gold, for this level only.' },
   hard: { title: 'Hard levels', text: 'Every fifth level is a hard one: a tougher deal and fewer open slots, but double gold. Boosters help!' },
-  layers: { title: 'Layered pictures', text: 'Some cubes sit on top of another. Pop the top one and the cube under it shows up. Its color peeks out underneath.' },
+  layers: { title: 'Surprise pictures', text: 'Clear the whole first picture to reveal a different one underneath. White cubes cover places where its shape sticks out.' },
   ice: { title: 'Frozen jellies', text: 'They thaw after you send out as many jellies as the number on the ice.' },
   rope: { title: 'Linked jellies', text: 'Linked jellies go out together, two or three at a time. Every one of them must be free to leave.' },
   hidden: { title: 'Mystery jellies', text: 'Their color stays hidden until they reach the front.' },
@@ -377,6 +377,9 @@ function setHud() {
   if (!st) return;
   $('hud-level').textContent = `Level ${levelIndex + 1}`;
   $('hud-level').classList.toggle('hard', !!st.lvl.hard);
+  const stage = $('hud-stage');
+  stage.classList.toggle('hidden', !st.lvl.underName);
+  stage.textContent = st.lvl.underName ? `Picture ${st.layer + 1} / 2` : '';
   $('hud-coins').textContent = String(save.coins);
   syncLives(save, Date.now());
   $('hud-lives').textContent = String(save.lives);
@@ -500,7 +503,7 @@ function startLevel(i: number) {
   announceHard();
 }
 
-/** Two stacked cubes, as layered pictures draw them, for the "new" tip. */
+/** Two distinct tiny pictures for the reveal tip. */
 function layersCanvas() {
   const c = document.createElement('canvas');
   const dpr = Math.min(3, window.devicePixelRatio || 1);
@@ -524,12 +527,14 @@ function layersCanvas() {
     x.roundRect(cx + s * 0.16, cy + s * 0.16, s * 0.34, s * 0.16, s * 0.08);
     x.fill();
   };
-  const pairs: [string, string][] = [['#2f8cff', '#ffd21f'], ['#ff3d4f', '#3fcf5c'], ['#9b3df0', '#ff8a1f']];
-  pairs.forEach(([top, under], k) => {
-    const cx = 8 + k * 48;
-    cube(cx, 34, 40, under);
-    cube(cx, 34 - 9, 40, top);
-  });
+  const art = (rows: string[], ox: number, color: string) => rows.forEach((row, y) =>
+    [...row].forEach((ch, ix) => { if (ch !== '.') cube(ox + ix * 11, 13 + y * 11, 10, ch === 'W' ? '#f2f0ea' : color); }));
+  art(['WR.RW', 'RRRRR', 'RRRRR', '.RRR.', '..R..'], 2, '#ff3d4f');
+  x.fillStyle = '#fff8d9';
+  x.font = 'bold 24px sans-serif';
+  x.textAlign = 'center';
+  x.fillText('→', 75, 47);
+  art(['..Y..', 'YYYYY', '.YYY.', 'YYYYY', 'Y...Y'], 94, '#ffd21f');
   return c;
 }
 
@@ -868,6 +873,11 @@ function handleEvents() {
         haptics.pulse(15);
         chain.level++;
       }
+    } else if (e.k === 'reveal') {
+      setHud();
+      popup(view, `Surprise! ${st.lvl.underName ?? 'A new picture'}!`, '#fff4b5', 0.85);
+      sfx.combo(1);
+      haptics.pulse(20);
     } else if (e.k === 'done') {
       sfx.done();
       haptics.pulse(18);

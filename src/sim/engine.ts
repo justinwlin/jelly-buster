@@ -40,9 +40,9 @@ export interface Level {
   h: number;
   /** Color index per cell, -1 for empty. Row-major, y down. */
   cells: number[];
-  /** Layered pictures: the cube sitting under each cell's cube (-1 for none). Popping the
-   * top cube uncovers it in the same spot. */
+  /** A different picture kept hidden until every front-picture cube is cleared. */
   under?: number[];
+  underName?: string;
   /** Hex color per color index. */
   palette: string[];
   columns: JellySpec[][];
@@ -85,6 +85,7 @@ export type SimEvent =
   | { k: 'enter'; id: number }
   /** `s` is the belt station it fired from, -1 for a flying jelly. */
   | { k: 'shot'; id: number; cell: number; color: number; s: number }
+  | { k: 'reveal' }
   | { k: 'done'; id: number; s: number }
   /** Boosters: a propeller lifts a jelly, the crane plucks one from the queue, slot jellies merge. */
   | { k: 'lift'; id: number; slot: number; col: number }
@@ -101,8 +102,14 @@ export interface State {
   lvl: Level;
   tick: number;
   cells: number[];
-  /** Cubes still under the top layer, -1 where there are none. */
+  /** Hidden second picture, -1 where it has no cube. */
   under: number[];
+  /** Front-picture cubes remaining before the second picture can be revealed. */
+  topLeft: number;
+  /** 0 on the front picture, 1 after the second picture appears. */
+  layer: 0 | 1;
+  /** Brief pause so the new picture can be seen before firing resumes. */
+  revealTicks: number;
   /** Cubes left to pop, both layers. */
   left: number;
   cols: Jelly[][];
@@ -140,6 +147,9 @@ export function newState(lvl: Level): State {
     tick: 0,
     cells,
     under,
+    topLeft: cells.filter((c) => c >= 0).length,
+    layer: 0,
+    revealTicks: 0,
     left: cells.filter((c) => c >= 0).length + under.filter((c) => c >= 0).length,
     cols: lvl.columns.map((col) =>
       col.map((j) => ({ id: j.id, color: j.color, n: j.n, ice: j.ice ?? 0, link: j.link ?? -1, hidden: !!j.hidden })),
@@ -184,10 +194,10 @@ const emit = (st: State, e: SimEvent) => {
   if (st.log) st.events.push(e);
 };
 
-/** Pop the top cube of a cell: the cube under it (if any) takes its place. */
+/** Pop a visible cube. The hidden picture cannot be targeted during this stage. */
 function pop(st: State, i: number) {
-  st.cells[i] = st.under[i];
-  st.under[i] = -1;
+  st.cells[i] = -1;
+  if (st.layer === 0) st.topLeft--;
   st.left--;
   st.shots++;
   st.lastShot = st.tick;
@@ -454,6 +464,10 @@ export const slotsUsed = (st: State) => st.slots.reduce((n, j) => n + (j ? 1 : 0
 export function step(st: State) {
   if (st.status !== 'play') return;
   st.tick++;
+  if (st.revealTicks > 0) {
+    st.revealTicks--;
+    return;
+  }
   const { sub, spacing } = TUNING;
   const { w, h } = st.lvl;
   const L = trackLength(w, h);
@@ -514,6 +528,15 @@ export function step(st: State) {
   }
 
   stepFlyers(st);
+
+  if (st.layer === 0 && st.topLeft === 0 && st.under.some((c) => c >= 0)) {
+    st.cells = st.under.slice();
+    st.under.fill(-1);
+    st.layer = 1;
+    st.revealTicks = 60;
+    emit(st, { k: 'reveal' });
+    return;
+  }
 
   if (st.left <= 0) {
     st.status = 'won';

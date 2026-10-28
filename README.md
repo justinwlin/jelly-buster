@@ -25,7 +25,7 @@ A puzzle game about sending jellies around a conveyor belt so they munch every c
 | 8 | **Ice**: the jelly is frozen until you've sent out the number of jellies shown on it. |
 | 10, then every fifth | **Hard level**: fewer open slots and a tougher deal, with double gold for a win. |
 | 14 | **Links**: 2 or 3 linked jellies (side by side, or one behind the other) go out together once every one of them is free. |
-| 16 | **Layers**: some cells hide a second cube. Clear the top cube to reveal the one underneath. |
+| 16 | **Surprise pictures**: clear the first picture to reveal a different one. White cubes cover only the hidden picture's extra outline. |
 | 18 | **Mystery**: the jelly's color stays hidden until it reaches the front. |
 | 22 | **Long ropes**: a linked partner starts below the visible rows, so you dig down to free it. |
 

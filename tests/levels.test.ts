@@ -2,13 +2,18 @@ import { describe, expect, it } from 'vitest';
 import campaign from '../src/levels/campaign.json';
 import { playBot } from '../src/sim/bots';
 import type { Level } from '../src/sim/engine';
-import { buildLevel, campaign as slots, GEN_VERSION, isHard, needBand, recipe, TOUGH_FROM, untangles, type Check } from '../src/sim/levels';
+import { buildLevel, campaign as slots, GEN_VERSION, isHard, needBand, recipe, stackPictures, TOUGH_FROM, untangles, type Check } from '../src/sim/levels';
 import { PACKS } from '../src/sim/pictures';
 import { COLORS } from '../src/sim/art';
 
 const LEVELS = (campaign as unknown as { gen: number; levels: (Level & { check: Check })[] }).levels;
 
 describe('pictures', () => {
+  it('uses white only to hide the second picture where it extends beyond the first', () => {
+    const { top, under } = stackPictures(['R.', '..'], ['.B', 'BB']);
+    expect(top).toEqual(['R', 'W', 'W', 'W']);
+    expect(under).toEqual(['.', 'B', 'B', 'B']);
+  });
   for (const pack of PACKS)
     for (const art of pack.pictures)
       it(`${pack.id}/${art.name} follows the picture rules`, () => {
@@ -32,11 +37,26 @@ describe('campaign.json', () => {
     const s = slots();
     expect(LEVELS.length).toBe(s.length);
     LEVELS.forEach((l, i) => expect(l.name).toBe(s[i].art.name));
-    // Candidate deals may change the cover layer, but must retain the picture dimensions.
+    // Candidate deals may change the queue, but retain the picture dimensions and colors.
     for (const i of [0, 17, 63]) {
       const candidate = buildLevel(s[i], recipe(i), 'jelly');
       expect([LEVELS[i].w, LEVELS[i].h, LEVELS[i].palette]).toEqual([candidate.w, candidate.h, candidate.palette]);
     }
+  });
+
+  it('layered levels reveal a different picture and cover its extra silhouette with white', () => {
+    const s = slots();
+    for (const l of LEVELS) {
+      if (!l.under?.some((c) => c >= 0)) continue;
+      expect(l.underName, l.id).toBeDefined();
+      expect(l.underName, l.id).not.toBe(l.name);
+      expect(s[l.index].underArt?.name, l.id).toBe(l.underName);
+      for (let i = 0; i < l.under.length; i++)
+        if (l.under[i] >= 0) expect(l.cells[i], `${l.id} exposes hidden cell ${i}`).toBeGreaterThanOrEqual(0);
+    }
+    expect(LEVELS.filter((l) => l.underName).length).toBeGreaterThanOrEqual(20);
+    expect(LEVELS[15].slots).toBe(5);
+    expect(LEVELS[15].check.greedy).toBe(LEVELS[15].check.tries);
   });
 
   it('every level has exactly enough jelly hits for its cubes, per color', () => {

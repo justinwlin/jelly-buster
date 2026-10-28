@@ -11,7 +11,7 @@ import { hash32, Rng } from './rng';
 import { exposed } from './track';
 
 /** Bump when built levels change shape, so saved progress can tell. */
-export const GEN_VERSION = 4;
+export const GEN_VERSION = 5;
 
 export interface Recipe {
   columns: number;
@@ -35,8 +35,6 @@ export interface Recipe {
   hidden: number;
   /** Slots open at the start (the rest of the 5 sockets are locked, unlockable for gold). */
   open: number;
-  /** 0..1: share of the picture under a second layer of cubes. */
-  layers: number;
 }
 
 /** Every fifth level from level 10: tougher deal, fewer open slots, double gold. */
@@ -59,7 +57,6 @@ export function recipe(index: number): Recipe {
     farRopes: n < 22 ? 0 : Math.min(2, 1 + Math.floor((n - 22) / 14)),
     hidden: n < 18 ? 0 : Math.min(5, 1 + Math.floor((n - 18) / 6)),
     open: n < 7 ? TUNING.slots : 4,
-    layers: n < 16 ? 0 : Math.min(0.55, 0.2 + (n - 16) * 0.008),
   };
 }
 
@@ -72,45 +69,47 @@ export function newFeature(index: number): Feature | null {
 }
 
 /**
- * Cubes in the order a sensible player uncovers them: outside layers first. A layered cell
- * shows up twice, its top cube and then the one under it.
+ * Cubes in the order a sensible player uncovers them: finish the front picture before
+ * starting the hidden picture. Each picture peels from the outside in.
  */
 export function peelOrder(cells: number[], w: number, h: number, under: number[] = []): { i: number; color: number }[] {
-  const c = cells.slice();
-  const u = under.slice();
   const order: { i: number; color: number }[] = [];
-  for (;;) {
-    const layer = [...exposed(c, w, h)].sort((a, b) => a - b);
-    if (!layer.length) return order;
-    for (const i of layer) {
-      order.push({ i, color: c[i] });
-      c[i] = u[i] ?? -1;
-      u[i] = -1;
+  for (const picture of [cells, under]) {
+    const c = picture.slice();
+    for (;;) {
+      const layer = [...exposed(c, w, h)].sort((a, b) => a - b);
+      if (!layer.length) break;
+      for (const i of layer) {
+        order.push({ i, color: c[i] });
+        c[i] = -1;
+      }
     }
   }
+  return order;
 }
 
 /**
- * Layered pictures: wrap the middle of the picture (the cells peeled last) in a striped
- * cover of two of its own colors. The real picture is underneath and peeks out of each
- * cube's bottom edge, so it's always visible what comes next.
+ * Center two different pictures on one grid. White playable cubes fill only the places
+ * where the hidden picture would otherwise stick out past the front picture.
  */
-function coverUp(cells: number[], w: number, h: number, frac: number, rng: Rng): { top: number[]; under: number[] } {
-  const under = cells.map(() => -1);
-  const top = cells.slice();
-  if (frac <= 0) return { top, under };
-  const order = peelOrder(cells, w, h);
-  const count = new Map<number, number>();
-  for (const c of cells) if (c >= 0) count.set(c, (count.get(c) ?? 0) + 1);
-  const [a, b = a] = [...count.entries()].sort((x, y) => y[1] - x[1] || x[0] - y[0]).map(([c]) => c);
-  const flip = rng.chance(0.5);
-  for (const { i } of order.slice(Math.round(order.length * (1 - frac)))) {
-    const x = i % w;
-    const y = Math.floor(i / w);
-    under[i] = cells[i];
-    top[i] = ((Math.floor((x + y) / 2) % 2 === 0) !== flip) ? a : b;
+export function stackPictures(front: string[], back: string[], mirror = false): { w: number; h: number; top: string[]; under: string[] } {
+  const w = Math.max(...front.map((r) => r.length), ...back.map((r) => r.length));
+  const h = Math.max(front.length, back.length);
+  const place = (rows: string[]) => {
+    const out = Array<string>(w * h).fill('.');
+    const dx = Math.floor((w - Math.max(0, ...rows.map((r) => r.length))) / 2);
+    const dy = Math.floor((h - rows.length) / 2);
+    rows.forEach((row, y) => [...row].forEach((ch, x) => { out[(y + dy) * w + x + dx] = ch; }));
+    return out;
+  };
+  const top = place(front);
+  const under = place(back);
+  for (let i = 0; i < top.length; i++) if (top[i] === '.' && under[i] !== '.') top[i] = 'W';
+  if (mirror) {
+    for (const cells of [top, under])
+      for (let y = 0; y < h; y++) cells.splice(y * w, w, ...cells.slice(y * w, (y + 1) * w).reverse());
   }
-  return { top, under };
+  return { w, h, top, under };
 }
 
 function chunkSizes(total: number, [lo, hi]: [number, number], rng: Rng): number[] {
@@ -166,6 +165,8 @@ export interface Slot {
   index: number;
   pack: string;
   art: Art;
+  /** A different picture revealed after the first is completely cleared. */
+  underArt?: Art;
   /** Encore rounds replay every picture mirrored, with a harder deal. */
   mirror: boolean;
 }
@@ -179,7 +180,11 @@ export function campaign(): Slot[] {
       const arts = pack.pictures.map((art, k) => ({ art, k, colors: new Set(art.rows.join('').replace(/\./g, '')).size }));
       arts.sort((a, b) => a.colors - b.colors || a.k - b.k);
       if (pack.id === 'starter') arts.sort((a, b) => (a.art.name === 'Yin-yang' ? -1 : b.art.name === 'Yin-yang' ? 1 : 0));
-      for (const { art } of arts) out.push({ index: out.length, pack: pack.id, art, mirror });
+      for (let k = 0; k < arts.length; k++) {
+        const index = out.length;
+        const underArt = index >= 15 && (index - 15) % 4 === 0 && arts.length > 1 ? arts[(k + 1) % arts.length].art : undefined;
+        out.push({ index, pack: pack.id, art: arts[k].art, underArt, mirror });
+      }
     }
   return out;
 }
@@ -187,22 +192,16 @@ export function campaign(): Slot[] {
 /** Deal jellies for a picture. `attempt` reshuffles; `r` sets how mean the deal is. */
 export function buildLevel(slot: Slot, r: Recipe, seed: string, attempt = 0): Level {
   const rng = new Rng(hash32(`${seed}:${slot.index}:${GEN_VERSION}:${attempt}`));
-  const rows = slot.mirror ? slot.art.rows.map((row) => [...row].reverse().join('')) : slot.art.rows;
-  const w = Math.max(...rows.map((row) => row.length));
-  const h = rows.length;
+  const { w, h, top: topChars, under: underChars } = stackPictures(slot.art.rows, slot.underArt?.rows ?? [], slot.mirror);
   const letters: string[] = [];
-  const cells: number[] = [];
-  for (const row of rows)
-    for (const ch of row.padEnd(w, '.')) {
-      if (ch === '.') cells.push(-1);
-      else {
-        let k = letters.indexOf(ch);
-        if (k < 0) k = letters.push(ch) - 1;
-        cells.push(k);
-      }
-    }
-
-  const { top, under } = coverUp(cells, w, h, r.layers, rng);
+  const numberCells = (chars: string[]) => chars.map((ch) => {
+    if (ch === '.') return -1;
+    let k = letters.indexOf(ch);
+    if (k < 0) k = letters.push(ch) - 1;
+    return k;
+  });
+  const top = numberCells(topChars);
+  const under = numberCells(underChars);
 
   // One jelly per chunk of a color's cubes, in the order those cubes get uncovered.
   const order = peelOrder(top, w, h, under).map((o, k) => ({ ...o, k }));
@@ -325,6 +324,7 @@ export function buildLevel(slot: Slot, r: Recipe, seed: string, attempt = 0): Le
     id: `${slot.pack}/${slot.art.name}${slot.mirror ? '/encore' : ''}`,
     index: slot.index,
     name: slot.art.name,
+    ...(slot.underArt ? { underName: slot.underArt.name } : {}),
     w,
     h,
     cells: top,
@@ -483,15 +483,23 @@ export interface Built {
  */
 export function searchLevel(slot: Slot, seed = 'jelly'): Built {
   const base = recipe(slot.index + (slot.mirror ? 12 : 0));
+  // The first reveal is a teaching level: give players room to discover the second
+  // picture before the later paired pictures start asking for tighter slot play.
+  if (slot.index === 15) {
+    const r = { ...base, chunk: [10, 30] as [number, number], blockers: 0, ice: 0, ropes: 0, farRopes: 0, hidden: 0, scramble: 0, disorder: 0, clump: 0, open: TUNING.slots };
+    const level = buildLevel(slot, r, seed, 99);
+    const check = checkLevel(level);
+    if (!passes(slot.index, check, level.slots)) throw new Error('The introductory reveal must be beatable');
+    return { level, check, attempts: 1 };
+  }
   if (isHard(slot.index)) {
     base.open = 3;
-    if (base.layers) base.layers = Math.min(0.65, base.layers + 0.1);
   }
   const cap = spamCap(slot.index);
   const rng = new Rng(hash32(`${seed}:${slot.index}:harden`));
-  // Gentlest first: the base deal, then smaller jellies, a thinner cover layer, then bigger
+  // Gentlest first: the base deal, then smaller jellies, then bigger
   // jellies (which need more than one lap, so they come back to a slot more often).
-  const variants: Partial<Recipe>[] = [{}, { chunk: [10, 30] }, { layers: base.layers / 2 }, { chunk: [20, 50] }, ...(isHard(slot.index) ? [{ open: 4 }] : [])];
+  const variants: Partial<Recipe>[] = [{}, { chunk: [10, 30] }, { chunk: [20, 50] }, ...(isHard(slot.index) ? [{ open: 4 }] : [])];
   const tries = slot.index < 6 ? variants.slice(0, 1) : slot.index < 15 ? variants.slice(0, 2) : variants;
   let best: Built | null = null;
   let attempts = 0;
@@ -508,7 +516,11 @@ export function searchLevel(slot: Slot, seed = 'jelly'): Built {
       if (!best || check.spam < best.check.spam) best = built;
     }
   if (best) return best;
-  const r = { ...base, blockers: 0, ice: 0, ropes: 0, farRopes: 0, hidden: 0, scramble: 0, layers: 0, open: isHard(slot.index) ? 4 : TUNING.slots };
-  const level = buildLevel(slot, r, seed, 99);
-  return { level, check: checkLevel(level), attempts: attempts + 1 };
+  const r = { ...base, blockers: 0, ice: 0, ropes: 0, farRopes: 0, hidden: 0, scramble: 0, disorder: 0, clump: 0, open: isHard(slot.index) ? 4 : TUNING.slots };
+  for (let k = 99; k < 120; k++) {
+    const level = buildLevel(slot, r, seed, k);
+    const check = checkLevel(level);
+    if (passes(slot.index, check, level.slots)) return { level, check, attempts: attempts + k - 98 };
+  }
+  throw new Error(`Could not make ${slot.art.name} beatable with the available slots`);
 }

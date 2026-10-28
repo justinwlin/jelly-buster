@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { launch, lift, lockedSlots, merge, newState, revive, step, TUNING, unlockSlot, type Jelly, type Level } from '../src/sim/engine';
+import { FLY, launch, lift, lockedSlots, merge, newState, revive, step, TUNING, unlockSlot, type Jelly, type Level } from '../src/sim/engine';
 import { trackLength } from '../src/sim/track';
 import { buySlot, reward, slotPrice } from '../src/game/economy';
 import { fresh } from '../src/game/save';
@@ -12,15 +12,23 @@ const level = (overrides: Partial<Level> = {}): Level => ({
 });
 
 describe('layered cubes', () => {
-  it('counts both layers and uncovers the cube beneath the first hit', () => {
-    const st = newState(level({ under: [1] }));
+  it('keeps the second picture hidden until the entire first picture is gone', () => {
+    const st = newState(level({ w: 2, cells: [0, 0], under: [1, 1], underName: 'Surprise' }));
+    const flyer = (id: number) => ({ j: { id, color: 0, n: 1, ice: 0, link: -1, hidden: false }, t: FLY.rise - 1 });
+    expect(st.left).toBe(4);
+    st.flyers.push(flyer(10));
+    step(st);
+    expect(st.cells.filter((c) => c >= 0)).toEqual([0]);
+    expect(st.under).toEqual([1, 1]);
+    expect(st.layer).toBe(0);
+    st.flyers.push(flyer(11));
+    step(st);
+    expect(st.cells).toEqual([1, 1]);
+    expect(st.under).toEqual([-1, -1]);
+    expect(st.layer).toBe(1);
+    expect(st.revealTicks).toBe(60);
+    expect(st.events.some((e) => e.k === 'reveal')).toBe(true);
     expect(st.left).toBe(2);
-    expect(launch(st, 1)).toBe(true);
-    for (let i = 0; i < 500 && st.left === 2; i++) step(st);
-    expect(st.cells).toEqual([1]);
-    expect(st.under).toEqual([-1]);
-    expect(st.left).toBe(1);
-    expect(st.status).toBe('play');
   });
 });
 

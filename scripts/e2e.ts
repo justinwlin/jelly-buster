@@ -113,6 +113,19 @@ for (const [name, opts] of Object.entries(profiles)) {
   }
   check('a mechanics level runs', (await z<number>(page, 'return z.state().shots')) > 0);
 
+  // The second picture stays hidden until every front-picture cube is cleared.
+  await z(page, 'z.start(15)');
+  if (await page.isVisible('[data-act="ok"]')) await page.click('[data-act="ok"]', { force: true });
+  const pictures = await z<{ front: string; back: string; layer: number; hidden: number }>(page,
+    'const s = z.state(); return { front: s.lvl.name, back: s.lvl.underName, layer: s.layer, hidden: s.under.filter(c => c >= 0).length };');
+  check('layered level begins with a distinct hidden picture', pictures.front !== pictures.back && pictures.layer === 0 && pictures.hidden > 0);
+  check('HUD names the first picture stage', (await page.textContent('#hud-stage')) === 'Picture 1 / 2');
+  await z(page, 'const s = z.state(); s.cells.fill(-1); s.topLeft = 0; s.left = s.under.filter(c => c >= 0).length;');
+  await page.waitForFunction(() => (window as any).__jb?.state()?.layer === 1);
+  check('second picture appears only after first is cleared',
+    (await page.textContent('#hud-stage')) === 'Picture 2 / 2' &&
+    (await z<boolean>(page, 'const s = z.state(); return s.cells.some(c => c >= 0) && s.under.every(c => c < 0)')));
+
   // Propeller: arm it, tap a glowing jelly on the canvas, it takes off.
   await z(page, 'z.start(29)');
   await page.waitForTimeout(200);
@@ -126,6 +139,7 @@ for (const [name, opts] of Object.entries(profiles)) {
   await page.waitForFunction(() => (window as any).__jb.state().flyers.length === 0, null, { timeout: 15000 });
 
   // Shop: out of propellers, so the next one is bought (and armed) from a sheet.
+  await z(page, 'z.start(29)');
   await z(page, `z.setSave({ coins: 500 }); z.booster('propeller')`);
   check('buying shows a sheet with the price', await page.isVisible('.panel.shop'));
   await page.click('[data-act="buy"]', { force: true });

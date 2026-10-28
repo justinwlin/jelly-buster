@@ -272,6 +272,9 @@ export function onEvents(v: View, evs: SimEvent[]) {
         vis.pulse = 0.5;
         vis.shotAt = v.time;
       }
+    } else if (e.k === 'reveal') {
+      v.picDirty = true;
+      v.ghosts.clear();
     } else if (e.k === 'done') {
       const p = vis ? { x: vis.x, y: vis.y } : stationPos(l, e.s);
       const color = st.lvl.palette[v.lastColor.get(e.id) ?? 0];
@@ -766,43 +769,29 @@ function cubeSprite(v: View, color: string): HTMLCanvasElement {
   return c;
 }
 
-const picPad = (v: View) => Math.ceil(v.l.cs * 0.25 * v.dpr);
-
 function bakePicture(v: View) {
   const { l, st, dpr } = v;
   if (!v.pic) {
     v.pic = document.createElement('canvas');
     v.pic.width = Math.ceil((l.gw * l.cs + 8) * dpr);
-    // Extra room above the top row for raised (layered) cubes.
-    v.pic.height = Math.ceil((l.gh * l.cs + 8) * dpr) + picPad(v);
+    v.pic.height = Math.ceil((l.gh * l.cs + 8) * dpr);
   }
   const ctx = v.pic.getContext('2d')!;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, v.pic.width, v.pic.height);
-  ctx.translate(0, picPad(v));
   const cs = l.cs * dpr;
   const { w } = st.lvl;
   // A cube still flying toward its shot is drawn as it was, on top of whatever it uncovers.
   const top = (i: number) => v.ghosts.get(i) ?? st.cells[i];
-  const below = (i: number) => (v.ghosts.has(i) ? st.cells[i] : st.under[i]);
   // Soft contact shadow under the cubes.
   ctx.fillStyle = 'rgba(40,25,20,0.28)';
   for (let i = 0; i < st.cells.length; i++) if (top(i) >= 0) ctx.fillRect((i % w) * cs + cs * 0.12, Math.floor(i / w) * cs + cs * 0.22, cs, cs);
-  // Layered cells: the cube underneath shows, and the top cube sits on it, raised a little,
-  // so the color that comes next peeks out along the bottom edge.
-  const lift = cs * 0.2;
   for (let i = 0; i < st.cells.length; i++) {
     const c = top(i);
     if (c < 0) continue;
     const x = (i % w) * cs;
     const y = Math.floor(i / w) * cs;
-    const u = below(i);
-    if (u >= 0) {
-      ctx.drawImage(cubeSprite(v, st.lvl.palette[u]), x, y, cs, cs);
-      ctx.fillStyle = 'rgba(30,15,40,0.35)';
-      ctx.fillRect(x + cs * 0.08, y + cs - lift - cs * 0.06, cs * 0.84, cs * 0.08);
-      ctx.drawImage(cubeSprite(v, st.lvl.palette[c]), x, y - lift, cs, cs);
-    } else ctx.drawImage(cubeSprite(v, st.lvl.palette[c]), x, y, cs, cs);
+    ctx.drawImage(cubeSprite(v, st.lvl.palette[c]), x, y, cs, cs);
   }
   v.picDirty = false;
 }
@@ -822,7 +811,7 @@ export function draw(ctx: CanvasRenderingContext2D, v: View) {
   drawTreads(ctx, v);
   // The picture: baked cubes, a white flash on cubes that just popped.
   ctx.save();
-  ctx.setTransform(1, 0, 0, 1, (l.px + qx) * dpr, (l.py + qy) * dpr - picPad(v));
+  ctx.setTransform(1, 0, 0, 1, (l.px + qx) * dpr, (l.py + qy) * dpr);
   ctx.drawImage(v.pic!, 0, 0);
   ctx.restore();
   for (const f of v.flashes) {
