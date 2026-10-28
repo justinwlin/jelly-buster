@@ -30,7 +30,7 @@ The public URL is then `https://$RUNPOD_POD_ID-3002.proxy.runpod.net`.
 | `src/sim/pictures/` | The picture packs: hand-drawn pixel art in palette letters. |
 | `src/levels/campaign.json` | The built levels the game ships. Generated; don't edit it by hand. |
 | `src/game/` | Browser side: layout, canvas rendering, audio and saves. `economy.ts` holds lives, rewards and the booster shop as pure functions on the save. `boosterArt.ts` draws the booster icons and the propeller. |
-| `src/game/skins.ts` | Jelly look registry. Add a renderer under `src/game/skins/` and one registry entry; the picker and saved preference pick it up. Each renderer receives the color, hit count and `JellyLook` cues (ice, hidden, glow, mood, time). The Junimo renderer caches its tall pixel body and draws its arms, feet, sprout and expressions each frame. |
+| `src/game/skins.ts` | Jelly look registry. Add a renderer under `src/game/skins/` and one registry entry; the picker and saved preference pick it up. Each renderer receives the color, hit count and `JellyLook` cues (ice, hidden, glow, mood, time). The Junimo renderer caches its squat pixel body and draws its arms, feet, sprout and expressions each frame. |
 | `src/main.ts` | The app: screens, input, game loop and test hooks (`window.__jb`). |
 | `scripts/` | Level builder, sim report, e2e, screenshots, icons and art previews. |
 | `tests/` | Vitest: rule tests, plus checks that every shipped level is valid and beatable. |
