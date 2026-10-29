@@ -7,6 +7,7 @@ import { playBot } from './bots';
 import { BOOSTER_IDS, type Kit } from './boosters';
 import { TUNING, type JellySpec, type Level } from './engine';
 import { PACKS, type Art } from './pictures';
+import { FRESH_ART } from './pictures/fresh';
 import { hash32, Rng } from './rng';
 import { exposed } from './track';
 
@@ -15,6 +16,8 @@ export const GEN_VERSION = 5;
 /** Ten chapters of 100 levels: the original campaign plus nine verified remixes. */
 export const CAMPAIGN_ROUNDS = 10;
 export const BASE_LEVEL_COUNT = PACKS.reduce((n, p) => n + p.pictures.length * 2, 0);
+/** New full pictures introduced in the first fresh-art chapter. */
+export { FRESH_ART };
 
 export interface Recipe {
   columns: number;
@@ -175,6 +178,8 @@ export interface Slot {
   /** Zero for the original campaign; later rounds reuse its art with a fresh layout. */
   remix?: number;
   sourceIndex?: number;
+  /** This remix is built from a new picture rather than recoloring its source deal. */
+  fresh?: boolean;
 }
 
 /** Original pictures and encore, then nine chapters that remix their verified deals. */
@@ -197,7 +202,8 @@ export function campaign(): Slot[] {
     for (let j = 0; j < originals.length; j++) {
       // Level 5 was an easy teaching level; later fifth levels stay genuinely hard.
       const sourceIndex = j === 4 ? 9 : j;
-      out.push({ ...originals[sourceIndex], index: out.length, remix: round, sourceIndex });
+      const art = round === 1 && j < FRESH_ART.length ? FRESH_ART[j] : originals[sourceIndex].art;
+      out.push({ ...originals[sourceIndex], art, index: out.length, remix: round, sourceIndex, ...(art !== originals[sourceIndex].art ? { fresh: true } : {}) });
     }
   return out;
 }

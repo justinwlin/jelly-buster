@@ -5,12 +5,13 @@ import { mkdirSync } from 'node:fs';
 import { browserPath } from './browser';
 import { COLORS } from '../src/sim/art';
 import { PACKS } from '../src/sim/pictures';
+import { FRESH_ART } from '../src/sim/pictures/fresh';
 
 const want = process.argv[2];
 mkdirSync('e2e-out', { recursive: true });
 const browser = await chromium.launch({ executablePath: browserPath() });
 const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
-for (const pack of PACKS) {
+for (const pack of [...PACKS, { id: 'fresh', name: 'Fresh art', pictures: FRESH_ART }]) {
   if (want && pack.id !== want) continue;
   const html = `<body style="margin:0;background:#2b2733;font:14px sans-serif;color:#fff"><div id="g" style="display:flex;flex-wrap:wrap;gap:14px;padding:14px;width:1172px"></div><script>
     const arts = ${JSON.stringify(pack.pictures)}; const C = ${JSON.stringify(COLORS)};

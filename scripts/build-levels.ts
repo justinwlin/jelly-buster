@@ -25,9 +25,11 @@ if (part) {
 const jobs = Math.max(1, Math.min(all.length, Number(arg('jobs') ?? Math.min(8, Math.max(1, cpus().length - 1)))));
 const t0 = performance.now();
 const built: Built[] = [];
+let existing: (Built['level'] & { check: Built['check'] })[] | undefined;
 if (reuseBase && !only) {
   const old = JSON.parse(readFileSync('src/levels/campaign.json', 'utf8')) as { gen: number; levels: (Built['level'] & { check: Built['check'] })[] };
   if (old.gen !== GEN_VERSION || old.levels.length < BASE_LEVEL_COUNT) throw new Error('A checked base campaign with the current seed version is required');
+  existing = old.levels;
   built.push(...old.levels.slice(0, BASE_LEVEL_COUNT).map((level) => ({ level, check: level.check, attempts: 0 })));
 } else {
   await Promise.all(
@@ -49,6 +51,21 @@ built.sort((a, b) => a.level.index - b.level.index);
 if (!only) {
   const base = built.slice(0, BASE_LEVEL_COUNT);
   for (const slot of slots.slice(BASE_LEVEL_COUNT)) {
+    // Fresh pictures alone need a new search. All other remixes were already checked and
+    // have the same deterministic source, so reuse their shipped result during art work.
+    if (reuseBase && !slot.fresh) {
+      const level = existing![slot.index];
+      if (!level || level.name !== slot.art.name) throw new Error(`Cached remix ${slot.index + 1} does not match its picture`);
+      built.push({ level, check: level.check, attempts: 0 });
+      continue;
+    }
+    if (slot.fresh) {
+      const candidate = searchLevel(slot);
+      if (!passes(slot.index, candidate.check, candidate.level.slots)) throw new Error(`No beatable fresh picture for level ${slot.index + 1}`);
+      built.push(candidate);
+      if (built.length % 100 === 0) console.log(`Verified ${built.length} levels`);
+      continue;
+    }
     const source = base[slot.sourceIndex!];
     const first = 1 + ((slot.index + slot.remix!) % 7);
     const second = 1 + ((slot.index * 3 + slot.remix!) % 7);
