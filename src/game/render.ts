@@ -799,7 +799,12 @@ function bakePicture(v: View) {
   ctx.fillRect(0, 0, l.gw * cs, l.gh * cs);
   ctx.fillStyle = shade(accent, -0.08, 0.25);
   for (let y = 0; y < l.gh; y++) for (let x = 0; x < l.gw; x++)
-    if ((x * 7 + y * 11 + st.lvl.index * 5) % 13 === 0) ctx.fillRect(x * cs + cs * 0.42, y * cs + cs * 0.42, cs * 0.16, cs * 0.16);
+    if ((x * 7 + y * 11 + st.lvl.index * 5) % 13 === 0) {
+      const px = x * cs + cs * 0.5, py = y * cs + cs * 0.5, r = cs * 0.13;
+      if (chapter % 3 === 0) ctx.fillRect(px - r, py - r, 2 * r, 2 * r);
+      else if (chapter % 3 === 1) { ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI * 2); ctx.fill(); }
+      else { ctx.fillRect(px - r, py - cs * 0.04, 2 * r, cs * 0.08); ctx.fillRect(px - cs * 0.04, py - r, cs * 0.08, 2 * r); }
+    }
   // A cube still flying toward its shot is drawn as it was, on top of whatever it uncovers.
   const top = (i: number) => v.ghosts.get(i) ?? st.cells[i];
   // The second picture is visible through a nearly opaque veil only where the first
