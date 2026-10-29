@@ -122,7 +122,12 @@ button { font-family: var(--font); }
 
 /* ---------------------------------------------------------------- levels */
 .panel.levels { padding-top: 32px; }
-.packs { text-align: left; max-height: min(64dvh / var(--ui), 560px); /* inside a zoomed screen: viewport units / --ui */ overflow-y: auto; margin: 0 -8px; padding: 0 8px 4px; touch-action: pan-y; }
+.chapter-nav { display: flex; align-items: center; gap: 8px; margin: 6px 0 8px; }
+.chapter-nav b { flex: 1; line-height: 1.05; font-size: 18px; }
+.chapter-nav small { display: block; font-size: 13px; color: #9b7758; }
+.chapter-nav button { width: 38px; height: 36px; border: 0; border-radius: 12px; background: #dcecff; color: #315ec4; font: 800 29px var(--font); line-height: 1; cursor: pointer; }
+.chapter-nav button:disabled { opacity: 0.35; cursor: default; }
+.packs { text-align: left; max-height: min(55dvh / var(--ui), 520px); /* inside a zoomed screen: viewport units / --ui */ overflow-y: auto; margin: 0 -8px; padding: 0 8px 4px; touch-action: pan-y; }
 .pack h3 { margin: 12px 2px 8px; font-size: 19px; display: flex; justify-content: space-between; align-items: baseline; }
 .pack h3 em { font-style: normal; font-size: 14px; color: #c99a2e; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 9px; }
@@ -291,7 +296,7 @@ button { font-family: var(--font); }
   .big-heart, .big-heart .heart { width: 72px; height: 66px; }
   .shop-icon canvas { width: 72px !important; height: 72px !important; }
   .cscroll { max-height: calc(100dvh / var(--ui) - 230px); }
-  .packs { max-height: calc(100dvh / var(--ui) - 170px); }
+  .packs { max-height: calc(100dvh / var(--ui) - 225px); }
 }
 
 /* Landscape phones: the title splits into two columns, panels drop their pictures. */
@@ -318,7 +323,7 @@ button { font-family: var(--font); }
   .intro-row small { font-size: 12px; }
   .big-heart, .big-heart .heart { width: 52px; height: 48px; }
   .cscroll { max-height: calc(100dvh / var(--ui) - 170px); }
-  .packs { max-height: calc(100dvh / var(--ui) - 150px); }
+  .packs { max-height: calc(100dvh / var(--ui) - 200px); }
   .panel.levels { width: min(700px, 100%); }
 }
 

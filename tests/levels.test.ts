@@ -35,7 +35,9 @@ describe('campaign.json', () => {
   it('is built from the current pictures and generator (run `npm run levels` if this fails)', () => {
     expect((campaign as { gen: number }).gen).toBe(GEN_VERSION);
     const s = slots();
+    expect(LEVELS.length).toBe(1000);
     expect(LEVELS.length).toBe(s.length);
+    expect(new Set(LEVELS.map((l) => l.id)).size).toBe(LEVELS.length);
     LEVELS.forEach((l, i) => expect(l.name).toBe(s[i].art.name));
     // Candidate deals may change the queue, but retain the picture dimensions and colors.
     for (const i of [0, 17, 63]) {

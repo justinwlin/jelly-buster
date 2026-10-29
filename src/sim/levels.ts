@@ -1,6 +1,6 @@
 // Level builder: picture → cubes → jellies dealt into columns, with ice, ropes and hidden
 // colors layered on as levels go up. Levels are built and checked offline by
-// `npm run levels`, which writes src/levels/campaign.json; the game only loads that file.
+// `npm run levels`, which writes src/levels/campaign.json; phones only load that file.
 
 import { COLORS } from './art';
 import { playBot } from './bots';
@@ -10,8 +10,11 @@ import { PACKS, type Art } from './pictures';
 import { hash32, Rng } from './rng';
 import { exposed } from './track';
 
-/** Bump when built levels change shape, so saved progress can tell. */
+/** Base deal seed version; keep stable when adding remixes so the first 100 stay unchanged. */
 export const GEN_VERSION = 5;
+/** Ten chapters of 100 levels: the original campaign plus nine verified remixes. */
+export const CAMPAIGN_ROUNDS = 10;
+export const BASE_LEVEL_COUNT = PACKS.reduce((n, p) => n + p.pictures.length * 2, 0);
 
 export interface Recipe {
   columns: number;
@@ -169,9 +172,12 @@ export interface Slot {
   underArt?: Art;
   /** Encore rounds replay every picture mirrored, with a harder deal. */
   mirror: boolean;
+  /** Zero for the original campaign; later rounds reuse its art with a fresh layout. */
+  remix?: number;
+  sourceIndex?: number;
 }
 
-/** The campaign: every pack in order, then an encore round of all pictures mirrored. */
+/** Original pictures and encore, then nine chapters that remix their verified deals. */
 export function campaign(): Slot[] {
   const out: Slot[] = [];
   for (const mirror of [false, true])
@@ -186,7 +192,55 @@ export function campaign(): Slot[] {
         out.push({ index, pack: pack.id, art: arts[k].art, underArt, mirror });
       }
     }
+  const originals = out.slice();
+  for (let round = 1; round < CAMPAIGN_ROUNDS; round++)
+    for (let j = 0; j < originals.length; j++) {
+      // Level 5 was an easy teaching level; later fifth levels stay genuinely hard.
+      const sourceIndex = j === 4 ? 9 : j;
+      out.push({ ...originals[sourceIndex], index: out.length, remix: round, sourceIndex });
+    }
   return out;
+}
+
+/** Rotate saturated colors while leaving white and gray cover tiles neutral. */
+function rotateHue(hex: string, degrees: number): string {
+  const rgb = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const hi = Math.max(...rgb), lo = Math.min(...rgb), d = hi - lo;
+  if (d < 0.08) return hex;
+  const light = (hi + lo) / 2;
+  const sat = d / (1 - Math.abs(2 * light - 1));
+  const at = rgb.indexOf(hi);
+  const hue = (at === 0 ? ((rgb[1] - rgb[2]) / d) % 6 : at === 1 ? (rgb[2] - rgb[0]) / d + 2 : (rgb[0] - rgb[1]) / d + 4) * 60;
+  const shifted = (hue + degrees + 360) % 360;
+  const c = (1 - Math.abs(2 * light - 1)) * sat;
+  const x = c * (1 - Math.abs((shifted / 60) % 2 - 1));
+  const sector = Math.floor(shifted / 60);
+  const channels = [[c, x, 0], [x, c, 0], [0, c, x], [0, x, c], [x, 0, c], [c, 0, x]][sector];
+  return `#${channels.map((v) => Math.round((v + light - c / 2) * 255).toString(16).padStart(2, '0')).join('')}`;
+}
+
+/** A remix changes the picture orientation and queue column order, never its hit totals. */
+export function remixLevel(base: Level, index: number, round: number, variant: number): Level {
+  const flipX = !!(variant & 1), flipY = !!(variant & 2);
+  const flip = (cells: number[]) => {
+    const out = Array<number>(cells.length);
+    for (let y = 0; y < base.h; y++) for (let x = 0; x < base.w; x++)
+      out[y * base.w + x] = cells[(flipY ? base.h - 1 - y : y) * base.w + (flipX ? base.w - 1 - x : x)];
+    return out;
+  };
+  return {
+    id: `${base.id}/remix-${round}-${index + 1}`,
+    index,
+    name: base.name,
+    ...(base.underName ? { underName: base.underName } : {}),
+    w: base.w, h: base.h,
+    cells: flip(base.cells),
+    ...(base.under ? { under: flip(base.under) } : {}),
+    palette: base.palette.map((color) => rotateHue(color, round * 37)),
+    columns: (variant & 4 ? base.columns.slice().reverse() : base.columns).map((col) => col.map((j) => ({ ...j }))),
+    slots: base.slots, sockets: base.sockets, belt: base.belt,
+    ...(base.hard ? { hard: true } : {}),
+  };
 }
 
 /** Deal jellies for a picture. `attempt` reshuffles; `r` sets how mean the deal is. */
@@ -321,7 +375,7 @@ export function buildLevel(slot: Slot, r: Recipe, seed: string, attempt = 0): Le
   for (const j of rng.shuffle(hidable).slice(0, r.hidden)) j.hidden = true;
 
   return {
-    id: `${slot.pack}/${slot.art.name}${slot.mirror ? '/encore' : ''}`,
+    id: `${slot.pack}/${slot.art.name}${slot.mirror ? '/encore' : ''}${slot.remix ? `/remix-${slot.remix}-${slot.index + 1}` : ''}`,
     index: slot.index,
     name: slot.art.name,
     ...(slot.underArt ? { underName: slot.underArt.name } : {}),

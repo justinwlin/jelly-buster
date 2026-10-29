@@ -54,13 +54,13 @@ The pictures are hand-drawn pixel art in themed packs:
 | Snacks | 12 |
 | Adventure | 14 |
 
-After those 50, an encore round replays every picture mirrored, with harder deals.
+After those 50, an encore round replays every picture mirrored, with harder deals. Nine more remix chapters bring the campaign to **1,000 levels**. Remixes flip pictures, sometimes reverse queue columns, and shift their colors. They reuse the hand-drawn art, and every new deal is checked by the bots before it ships. The level picker shows one 100-level chapter at a time.
 
 Every level is checked before it ships. `npm run levels` turns each picture into jellies, and bots play each candidate deal. A deal ships only if it passes all of these:
 
 - It's winnable with the slots already open: a lookahead bot never needs to buy an unlock.
 - A human-like bot (slower, sometimes picks wrong) wins at least 2 of 3 tries. From level 21 the deals are tougher: the bot without boosters has to win at least once, and with one of each booster it has to win every time.
-- Blind spamming of the queue doesn't win more often than the level's target allows. The queue order is searched to make spamming fail, while a careful player still always wins.
+- The builder prefers deals where blind queue spamming does not win reliably. If no such deal passes the fairness checks, it ships the beatable deal instead.
 
 See [docs/development.md](docs/development.md) for how it works.
 

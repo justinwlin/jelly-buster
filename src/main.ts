@@ -4,7 +4,7 @@ import './style.css';
 import { registerSW } from 'virtual:pwa-register';
 import { launch, launchGroup, legalLaunches, locate, lockedSlots, newState, revive, stars, step, TUNING, type Level, type State } from './sim/engine';
 import { BOOSTER_IDS, BOOSTERS, useBooster, type BoosterId } from './sim/boosters';
-import { newFeature, type Feature } from './sim/levels';
+import { BASE_LEVEL_COUNT, newFeature, type Feature } from './sim/levels';
 import { PACKS } from './sim/pictures';
 import { exposed } from './sim/track';
 import campaignData from './levels/campaign.json';
@@ -317,15 +317,19 @@ function toTitle() {
   [['#9b3df0', 50], ['#ff3d4f', ''], ['#ffd21f', 40]].forEach(([c, n], i) => m.append(jellyCanvas(c as string, n as string, i === 1 ? 92 : 66, true, `bob b${i}`)));
 }
 
-function levelsScreen() {
+function levelsScreen(chapter = Math.floor(Math.min(save.unlocked, LEVELS.length - 1) / BASE_LEVEL_COUNT)) {
+  const lastChapter = Math.ceil(LEVELS.length / BASE_LEVEL_COUNT) - 1;
+  chapter = Math.max(0, Math.min(lastChapter, chapter));
+  const fromLevel = chapter * BASE_LEVEL_COUNT;
+  const toLevel = Math.min(LEVELS.length, fromLevel + BASE_LEVEL_COUNT);
   const groups: { name: string; from: number; to: number }[] = [];
-  let i = 0;
-  while (i < LEVELS.length) {
-    const encore = LEVELS[i].id.endsWith('/encore');
+  let i = fromLevel;
+  while (i < toLevel) {
+    const encore = LEVELS[i].id.includes('/encore');
     const p = packOf(i);
     const from = i;
-    while (i < LEVELS.length && packOf(i) === p && LEVELS[i].id.endsWith('/encore') === encore) i++;
-    groups.push({ name: `${p.name}${encore ? ' · Encore' : ''}`, from, to: i });
+    while (i < toLevel && packOf(i) === p && LEVELS[i].id.includes('/encore') === encore) i++;
+    groups.push({ name: `${p.name}${encore ? ' · Encore' : ''}${chapter ? ` · Remix ${chapter}` : ''}`, from, to: i });
   }
   const packs = groups.map((g) => {
     let got = 0;
@@ -341,8 +345,11 @@ function levelsScreen() {
     return `<div class="pack"><h3>${g.name}<em>★ ${got}/${(g.to - g.from) * 3}</em></h3><div class="grid">${cells}</div></div>`;
   });
   const handlers: Record<string, () => void> = { back: toTitle };
-  for (let k = 0; k <= Math.min(save.unlocked, LEVELS.length - 1); k++) handlers[`lv${k}`] = () => play(k);
-  show(`<div class="panel levels"><div class="ribbon">Levels</div>${livesPill()}<div class="packs">${packs.join('')}</div><button class="btn ghost" data-act="back">Back</button></div>`, handlers);
+  if (chapter > 0) handlers['chapter-prev'] = () => levelsScreen(chapter - 1);
+  if (chapter < lastChapter) handlers['chapter-next'] = () => levelsScreen(chapter + 1);
+  for (let k = fromLevel; k < toLevel && k <= save.unlocked; k++) handlers[`lv${k}`] = () => play(k);
+  const nav = `<div class="chapter-nav"><button data-act="chapter-prev" ${chapter === 0 ? 'disabled' : ''} aria-label="Previous 100 levels">‹</button><b>${chapter ? `Remix ${chapter}` : 'Original'}<small>Levels ${fromLevel + 1}–${toLevel}</small></b><button data-act="chapter-next" ${chapter === lastChapter ? 'disabled' : ''} aria-label="Next 100 levels">›</button></div>`;
+  show(`<div class="panel levels"><div class="ribbon">Levels</div>${livesPill()}${nav}<div class="packs">${packs.join('')}</div><button class="btn ghost" data-act="back">Back</button></div>`, handlers);
   screen.querySelector('.lv.current')?.scrollIntoView({ block: 'center' });
 }
 

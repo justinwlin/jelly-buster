@@ -43,7 +43,7 @@ Junimo art reference: [reference/junimo-green.png](reference/junimo-green.png). 
 |---|---|
 | `npm test` | Unit tests: rules, determinism, picture rules, and campaign.json validity. |
 | `npm run build` | Type-checks everything (scripts too), then does the Vite + PWA build into `dist/`. |
-| `npm run levels` | Rebuilds `src/levels/campaign.json` from the picture packs and checks every level with the bots. Takes a few minutes. Add `-- --only=critters` to preview one pack without writing the file. |
+| `npm run levels` | Rebuilds the first 100 levels from the picture packs, then checks 900 remixes and writes `src/levels/campaign.json`. Add `-- --only=critters` to preview one pack without writing the file. `-- --reuse-base` keeps the already checked first 100 when only remix rules change. |
 | `npm run sim -- 5` | Replays the shipped levels with every bot (5 seeds each) and prints win rates. |
 | `npm run e2e -- http://localhost:3002/` | Browser checks on phone, small phone, landscape, tablet and desktop. Start a dev server first. |
 | `npm run layout -- http://localhost:3003/` | Opens every menu and three levels on eight screen sizes (from a 320×568 phone and a landscape phone up to a 1920×1080 desktop). It fails if a menu spills sideways or needs scrolling, or if HUD pieces overlap, the level title wraps, or the booster bar leaves the screen or covers the queue. Screenshots go to `e2e-out/layout/`. Run it after any UI change. |
@@ -65,7 +65,7 @@ To add a new pack, create the file and list it in `src/sim/pictures/index.ts`.
 
 ## How levels are made beatable
 
-`npm run levels` does the work offline, so the game never ships an unchecked level.
+`npm run levels` does the work offline, so the game never ships an unchecked level. The original 100 levels keep their IDs and deals. Nine remix chapters reuse those pictures with deterministic flips, column reversals, and hue changes. Each remix is replayed by the bots, and the builder falls back to a safer arrangement if needed. The browser only loads the resulting 1,000-level file; it never runs the search on a phone. The level picker shows 100 levels at a time.
 
 1. **Picture to cubes.** Each letter becomes a cube color. Starting at level 16, every fourth level pairs two different pictures from the same pack. Both are centered on one grid. White playable cubes cover only cells where the hidden picture extends past the first. Cleared spots show the second picture through a nearly opaque pale veil, and its colors leave a faint sheen on intact cubes. The entire first picture must be cleared before the second can be targeted; it then slides in with a glint during the brief firing pause.
 2. **Jellies.** Each color's cubes are split into jellies (multiples of 5). They're ordered by when their cubes get uncovered, peeling the picture from the outside in.
@@ -132,7 +132,7 @@ The home screen shows the version from `package.json`, the commit and the build 
 
 - Work on a `justin/<name>` branch. Run `npm test`, `npm run build`, then `npm run e2e` and `npm run layout` against a server, and look at the screenshots.
 - Pushing to `main` deploys to GitHub Pages via `.github/workflows/deploy.yml`.
-- When you change the rules or the generator in a way that changes levels, bump `GEN_VERSION` in `src/sim/levels.ts` and run `npm run levels`.
+- When you change the original deal rules, bump `GEN_VERSION` in `src/sim/levels.ts` and run `npm run levels`. When only remix transforms change, keep the original seed stable and use `npm run levels -- --reuse-base`; the builder still checks every remix.
 
 ### Rules stay fixed
 

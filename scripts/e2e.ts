@@ -86,8 +86,14 @@ for (const [name, opts] of Object.entries(profiles)) {
   await page.waitForFunction(() => (window as any).__jb?.mode === 'title');
   check('progress survives a reload', (await page.textContent('[data-act="play"]'))?.includes('Level 2') ?? false);
   await page.click('[data-act="levels"]', { force: true });
-  check('levels screen lists every level', (await page.locator('.lv').count()) === (await z<number>(page, 'return z.levels()')));
+  check('campaign has 1000 levels', (await z<number>(page, 'return z.levels()')) === 1000);
+  check('levels screen shows one 100-level chapter', (await page.locator('.lv').count()) === 100);
   check('hard levels have a grid badge', await page.locator('.lv.hard').count() === 19);
+  await page.click('[data-act="chapter-next"]');
+  check('next chapter begins at level 101', (await page.locator('.lv').first().getAttribute('aria-label'))?.startsWith('Level 101') ?? false);
+  await page.click('[data-act="chapter-prev"]');
+  await z(page, 'z.start(999)');
+  check('level 1000 starts with its hard badge', (await page.textContent('#hud-level')) === 'Level 1000' && await page.locator('#hud-level.hard').count() === 1);
 
   // A hard level has locked sockets. Unlocking one costs gold for this attempt.
   await z(page, 'z.setSave({ coins: 400 }); z.start(9)');

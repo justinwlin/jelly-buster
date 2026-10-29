@@ -91,6 +91,8 @@ for (const [name, opts] of Object.entries(PROFILES)) {
   await page.click('[data-act="back"]', { force: true });
   await page.click('[data-act="levels"]', { force: true });
   await menu(page, name, 'levels');
+  await page.click('[data-act="chapter-next"]', { force: true });
+  await menu(page, name, 'levels-remix');
   // A level: the boosters gift, a new-mechanic tip, then play.
   await z(page, 'z.start(29)');
   await menu(page, name, 'boosters-intro');
