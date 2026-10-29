@@ -53,9 +53,9 @@ if (!only) {
   for (const slot of slots.slice(BASE_LEVEL_COUNT)) {
     // Fresh pictures alone need a new search. All other remixes were already checked and
     // have the same deterministic source, so reuse their shipped result during art work.
-    if (reuseBase && !slot.fresh) {
-      const level = existing![slot.index];
-      if (!level || level.name !== slot.art.name) throw new Error(`Cached remix ${slot.index + 1} does not match its picture`);
+    const cached = reuseBase ? existing![slot.index] : undefined;
+    if (cached?.name === slot.art.name) {
+      const level = cached;
       built.push({ level, check: level.check, attempts: 0 });
       continue;
     }
